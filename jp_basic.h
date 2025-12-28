@@ -1,7 +1,8 @@
-// jp_basic.h
+// basic.h
 // All your basic needs imported at once
 // * Assertions (imported from assert.h)
 // * Type shorthands (imported from stdint.h and typedef'd)
+// * Better printing! (See 'Better Printing API')
 // * File IO @Incomplete (currently stdio.h)
 // * Allocators @Incomplete (currently malloc.h)
 // * Go-like strings @Incomplete
@@ -12,11 +13,11 @@
 // _Always_ call string_free - if it is not an owner it will just return
 // Anything tagged @Memory allocates/manipulates owning buffer
 
-#ifndef _JP_BASIC_H
-#define _JP_BASIC_H
+#ifndef _BASIC_H
+#define _BASIC_H
 
 #include <assert.h>
-#define panic(msg) assert(0 && msg)
+#define panic(msg) assert(msg && 0)
 #include <stdbool.h>
 #include <stdint.h>
 typedef int8_t  s8;
@@ -56,45 +57,50 @@ typedef uint64_t u64;
     } while (0);
 
 // Strings
-typedef struct {
-    char  *_owner;  // internal
+typedef struct string {
+    bool  _owner;  // internal
     char  *data;
     size_t len;
     size_t _cap;    // internal
+    bool next;
 } string;
 
-// libc string.h replacements
-string cstrlen(char source[static 1]);  // Creates slice over source
-string cstrcpy(char dest[static 1], const char source[static 1], size_t size); // If dest is null @Memory
-bool   cstrcmp(const char a[static 1], const char b[static 1]);
-int    cstrcontains(char haystack[static 1], char needle[static 1]);
-bool   jp_isspace(char c);
-
 // String functions
-string string_from(char src[static 1]);
+string cstrlen(char *source);  // Creates slice over source
+
+bool   jp_isspace(char c); // ISO compliant
+bool   jp_isalpha(char c); // mask off bits 32 then check if it's between 65 + 90 (checks)
+                           // this saves 2 comparisons as mask makes upper + lower the same bitwise
+bool   jp_isnum(char c);
 
 // String searching
 bool   string_cmp(string a, const string b);
 int    string_indexof(const string haystack, const string needle);
 bool   string_contains(const string haystack, const string needle);
 
+// Dest is pointer to reduce noise calling API
+// pass NULL to allocate new string
+// pass pointer to string if wanting to append
+string string_copy(string *dest, const string source); // @Cleanup remove after string formatted writing is good....
+string string_write(string *dest, const string data) ;
+
 // String manipulation
 // All pass by value and return a new string (slice)
 string string_trim_whitespace(string source);
-string string_trim_prefix(string source, char prefix[static 1]);
-string string_trim_suffix(string source, char suffix[static 1]);
-string string_trim_before(string source, char target[static 1]);
-string string_trim_after(string source, char target[static 1]);
+string string_trim_prefix(string source, char *prefix);
+string string_trim_suffix(string source, char *suffix);
+string string_trim_before(string source, char *target);
+string string_trim_after(string source, char *target);
 // As a result they can be chained i.e. 
 // string after_arrow_not_space = string_trim_whitespace(string_trim_prefix(source, "->"));
 
 // Except for this one, which works sort of like Go's SplitSeq
-string string_split_iter(string source[static 1], char raw[static 1]);
+string string_split_iter(string *source, string delim);
 // Which allows for the following style of code:
-// (in the below example, source is a preexisting string slice)
+// (in the below example, source jp_is a preexisting string slice)
 // ```
 // string line;
-// while ((line = string_split_seq(&source, "\n")).next) {
+// while ((line = string_split_iter(&source, "\n")).next) {
 //     printf("Line: %.*s\n", (int)line.len, line.data)
 // }
 // ```
@@ -103,6 +109,301 @@ string string_split_iter(string source[static 1], char raw[static 1]);
 size_t        sb_write(string *sb, char *text);
 void          sb_appendf(string *sb, char *fmt, ...);
 void          sb_appends(string *sb, string slice);
+
+// Better Printing
+typedef enum {
+    T_CHAR,
+    T_SCHAR,
+    T_UCHAR,
+
+    T_SHORT,
+    T_USHORT,
+
+    T_INT,
+    T_UINT,
+
+    T_LONG,
+    T_ULONG,
+
+    T_LLONG,
+    T_ULLONG,
+
+    T_BOOL,
+
+    T_FLOAT,
+    T_DOUBLE,
+    T_LDOUBLE,
+
+    T_SIZE,
+    T_PTRDIFF,
+
+    T_WCHAR,
+
+    T_STR,
+    T_PTR
+} tag_t;
+
+typedef struct {
+    tag_t tag;
+    union {
+        char                c;
+        signed char         sc;
+        unsigned char       uc;
+
+        short               sh;
+        unsigned short      ush;
+
+        int                 i;
+        unsigned int        ui;
+
+        long                l;
+        unsigned long       ul;
+
+        long long           ll;
+        unsigned long long  ull;
+
+        bool                b;
+
+        float               f;
+        double              d;
+        long double         ld;
+
+        char               *s;
+        void               *p;
+    };
+} TypeInfo;
+
+TypeInfo arg_char(char x)                     { return (TypeInfo){ T_CHAR,    .c   = x }; }
+TypeInfo arg_schar(signed char x)             { return (TypeInfo){ T_SCHAR,   .sc  = x }; }
+TypeInfo arg_uchar(unsigned char x)           { return (TypeInfo){ T_UCHAR,   .uc  = x }; }
+
+TypeInfo arg_short(short x)                   { return (TypeInfo){ T_SHORT,   .sh  = x }; }
+TypeInfo arg_ushort(unsigned short x)         { return (TypeInfo){ T_USHORT,  .ush = x }; }
+
+TypeInfo arg_int(int x)                       { return (TypeInfo){ T_INT,     .i   = x }; }
+TypeInfo arg_uint(unsigned int x)             { return (TypeInfo){ T_UINT,    .ui  = x }; }
+
+TypeInfo arg_long(long x)                     { return (TypeInfo){ T_LONG,    .l   = x }; }
+TypeInfo arg_ulong(unsigned long x)           { return (TypeInfo){ T_ULONG,   .ul  = x }; }
+
+TypeInfo arg_llong(long long x)               { return (TypeInfo){ T_LLONG,   .ll  = x }; }
+TypeInfo arg_ullong(unsigned long long x)     { return (TypeInfo){ T_ULLONG,  .ull = x }; }
+
+TypeInfo arg_bool(bool x)                     { return (TypeInfo){ T_BOOL,    .b   = x }; }
+
+TypeInfo arg_float(float x)                   { return (TypeInfo){ T_FLOAT,   .f   = x }; }
+TypeInfo arg_double(double x)                 { return (TypeInfo){ T_DOUBLE,  .d   = x }; }
+TypeInfo arg_ldouble(long double x)            { return (TypeInfo){ T_LDOUBLE, .ld  = x }; }
+
+TypeInfo arg_str(char *x)                     { return (TypeInfo){ T_STR,     .s   = x }; }
+TypeInfo arg_cstr(const char *x)              { return (TypeInfo){ T_STR,     .s   = (char *)x }; }
+
+TypeInfo arg_ptr(void *x)                     { return (TypeInfo){ T_PTR,     .p   = x }; }
+TypeInfo arg_cptr(const void *x)              { return (TypeInfo){ T_PTR,     .p   = (void *)x }; }
+
+#define TypedArg(x) _Generic((x), \
+    char:               arg_char, \
+    signed char:        arg_schar, \
+    unsigned char:      arg_uchar, \
+    short:              arg_short, \
+    unsigned short:     arg_ushort, \
+    int:                arg_int, \
+    unsigned int:       arg_uint, \
+    long:               arg_ulong, \
+    unsigned long:      arg_ulong, \
+    long long:          arg_llong, \
+    unsigned long long: arg_ullong, \
+    bool:               arg_bool, \
+    float:              arg_float, \
+    double:             arg_double, \
+    long double:        arg_ldouble, \
+    char *:             arg_str, \
+    const char *:       arg_cstr, \
+    void *:             arg_ptr, \
+    const void *:       arg_cptr \
+)(x)
+
+// Macro Helpers
+// Yes it's ugly, but it works!
+// If you are using more than 128 args, wtf.
+// Feel fre to extend your own copy!
+#define VA_COUNT(...) VA_COUNT_( \
+     __VA_ARGS__, \
+     128,127,126,125,124,123,122,121,120,119,118,117,116,115,114,113,112,111,110,109,108,107,106,105,104,103,102,101, \
+     100,99,98,97,96,95,94,93,92,91,90,89,88,87,86,85,84,83,82,81,80,79,78,77,76,75,74,73,72,71,70,69,68,67,66,65,64, \
+     63,62,61,60,59,58,57,56,55,54,53,52,51,50,49,48,47,46,45,44,43,42,41,40, \
+     39,38,37,36,35,34,33,32,31,30,29,28,27,26,25,24,23,22,21,20, \
+     19,18,17,16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1)
+
+#define VA_COUNT_( \
+     _1,_2,_3,_4,_5,_6,_7,_8,_9,_10, \
+     _11,_12,_13,_14,_15,_16,_17,_18,_19,_20, \
+     _21,_22,_23,_24,_25,_26,_27,_28,_29,_30, \
+     _31,_32,_33,_34,_35,_36,_37,_38,_39,_40, \
+     _41,_42,_43,_44,_45,_46,_47,_48,_49,_50, \
+     _51,_52,_53,_54,_55,_56,_57,_58,_59,_60, \
+     _61,_62,_63,_64,_65,_66,_67,_68,_69,_70, \
+     _71,_72,_73,_74,_75,_76,_77,_78,_79,_80, \
+     _81,_82,_83,_84,_85,_86,_87,_88,_89,_90, \
+     _91,_92,_93,_94,_95,_96,_97,_98,_99,_100, \
+     _101,_102,_103,_104,_105,_106,_107,_108,_109,_110, \
+     _111,_112,_113,_114,_115,_116,_117,_118,_119,_120, \
+     _121,_122,_123,_124,_125,_126,_127,_128, \
+     N,...) N
+
+
+#define FOREACH_1(func, _1) func(_1)
+#define FOREACH_2(func, _1, _2) func(_1), func(_2)
+#define FOREACH_3(func, _1, _2, _3) func(_1), func(_2), func(_3)
+#define FOREACH_4(func, _1, _2, _3, _4) func(_1), func(_2), func(_3), func(_4)
+#define FOREACH_5(func, _1, _2, _3, _4, _5) func(_1), func(_2), func(_3), func(_4), func(_5)
+#define FOREACH_6(func, _1, _2, _3, _4, _5, _6) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6)
+#define FOREACH_7(func, _1, _2, _3, _4, _5, _6, _7) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7)
+#define FOREACH_8(func, _1, _2, _3, _4, _5, _6, _7, _8) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8)
+#define FOREACH_9(func, _1, _2, _3, _4, _5, _6, _7, _8, _9) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9)
+#define FOREACH_10(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10)
+#define FOREACH_11(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11)
+#define FOREACH_12(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12)
+#define FOREACH_13(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13)
+#define FOREACH_14(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14)
+#define FOREACH_15(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15)
+#define FOREACH_16(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16)
+#define FOREACH_17(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17)
+#define FOREACH_18(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18)
+#define FOREACH_19(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19)
+#define FOREACH_20(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20)
+#define FOREACH_21(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21)
+#define FOREACH_22(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22)
+#define FOREACH_23(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23)
+#define FOREACH_24(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24)
+#define FOREACH_25(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25)
+#define FOREACH_26(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26)
+#define FOREACH_27(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27)
+#define FOREACH_28(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28)
+#define FOREACH_29(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29)
+#define FOREACH_30(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30)
+#define FOREACH_31(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31)
+#define FOREACH_32(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32)
+#define FOREACH_33(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33)
+#define FOREACH_34(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34)
+#define FOREACH_35(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35)
+#define FOREACH_36(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36)
+#define FOREACH_37(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37)
+#define FOREACH_38(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38)
+#define FOREACH_39(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39)
+#define FOREACH_40(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40)
+#define FOREACH_41(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41)
+#define FOREACH_42(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42)
+#define FOREACH_43(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43)
+#define FOREACH_44(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44)
+#define FOREACH_45(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45)
+#define FOREACH_46(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46)
+#define FOREACH_47(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47)
+#define FOREACH_48(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48)
+#define FOREACH_49(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49)
+#define FOREACH_50(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50)
+#define FOREACH_51(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51)
+#define FOREACH_52(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52)
+#define FOREACH_53(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53)
+#define FOREACH_54(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54)
+#define FOREACH_55(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55)
+#define FOREACH_56(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56)
+#define FOREACH_57(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57)
+#define FOREACH_58(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58)
+#define FOREACH_59(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59)
+#define FOREACH_60(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60)
+#define FOREACH_61(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61)
+#define FOREACH_62(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62)
+#define FOREACH_63(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63)
+#define FOREACH_64(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64)
+#define FOREACH_65(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65)
+#define FOREACH_66(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66)
+#define FOREACH_67(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67)
+#define FOREACH_68(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68)
+#define FOREACH_69(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69)
+#define FOREACH_70(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70)
+#define FOREACH_71(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71)
+#define FOREACH_72(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72)
+#define FOREACH_73(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73)
+#define FOREACH_74(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74)
+#define FOREACH_75(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75)
+#define FOREACH_76(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76)
+#define FOREACH_77(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77)
+#define FOREACH_78(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78)
+#define FOREACH_79(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79)
+#define FOREACH_80(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80)
+#define FOREACH_81(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81)
+#define FOREACH_82(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82)
+#define FOREACH_83(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83)
+#define FOREACH_84(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84)
+#define FOREACH_85(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85)
+#define FOREACH_86(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86)
+#define FOREACH_87(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87)
+#define FOREACH_88(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88)
+#define FOREACH_89(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89)
+#define FOREACH_90(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90)
+#define FOREACH_91(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91)
+#define FOREACH_92(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92)
+#define FOREACH_93(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93)
+#define FOREACH_94(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94)
+#define FOREACH_95(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94, _95) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94), func(_95)
+#define FOREACH_96(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94, _95, _96) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94), func(_95), func(_96)
+#define FOREACH_97(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94, _95, _96, _97) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94), func(_95), func(_96), func(_97)
+#define FOREACH_98(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94, _95, _96, _97, _98) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94), func(_95), func(_96), func(_97), func(_98)
+#define FOREACH_99(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94, _95, _96, _97, _98, _99) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94), func(_95), func(_96), func(_97), func(_98), func(_99)
+#define FOREACH_100(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94, _95, _96, _97, _98, _99, _100) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94), func(_95), func(_96), func(_97), func(_98), func(_99), func(_100)
+#define FOREACH_101(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94, _95, _96, _97, _98, _99, _100, _101) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94), func(_95), func(_96), func(_97), func(_98), func(_99), func(_100), func(_101)
+#define FOREACH_102(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94, _95, _96, _97, _98, _99, _100, _101, _102) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94), func(_95), func(_96), func(_97), func(_98), func(_99), func(_100), func(_101), func(_102)
+#define FOREACH_103(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94, _95, _96, _97, _98, _99, _100, _101, _102, _103) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94), func(_95), func(_96), func(_97), func(_98), func(_99), func(_100), func(_101), func(_102), func(_103)
+#define FOREACH_104(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94, _95, _96, _97, _98, _99, _100, _101, _102, _103, _104) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94), func(_95), func(_96), func(_97), func(_98), func(_99), func(_100), func(_101), func(_102), func(_103), func(_104)
+#define FOREACH_105(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94, _95, _96, _97, _98, _99, _100, _101, _102, _103, _104, _105) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94), func(_95), func(_96), func(_97), func(_98), func(_99), func(_100), func(_101), func(_102), func(_103), func(_104), func(_105)
+#define FOREACH_106(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94, _95, _96, _97, _98, _99, _100, _101, _102, _103, _104, _105, _106) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94), func(_95), func(_96), func(_97), func(_98), func(_99), func(_100), func(_101), func(_102), func(_103), func(_104), func(_105), func(_106)
+#define FOREACH_107(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94, _95, _96, _97, _98, _99, _100, _101, _102, _103, _104, _105, _106, _107) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94), func(_95), func(_96), func(_97), func(_98), func(_99), func(_100), func(_101), func(_102), func(_103), func(_104), func(_105), func(_106), func(_107)
+#define FOREACH_108(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94, _95, _96, _97, _98, _99, _100, _101, _102, _103, _104, _105, _106, _107, _108) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94), func(_95), func(_96), func(_97), func(_98), func(_99), func(_100), func(_101), func(_102), func(_103), func(_104), func(_105), func(_106), func(_107), func(_108)
+#define FOREACH_109(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94, _95, _96, _97, _98, _99, _100, _101, _102, _103, _104, _105, _106, _107, _108, _109) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94), func(_95), func(_96), func(_97), func(_98), func(_99), func(_100), func(_101), func(_102), func(_103), func(_104), func(_105), func(_106), func(_107), func(_108), func(_109)
+#define FOREACH_110(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94, _95, _96, _97, _98, _99, _100, _101, _102, _103, _104, _105, _106, _107, _108, _109, _110) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94), func(_95), func(_96), func(_97), func(_98), func(_99), func(_100), func(_101), func(_102), func(_103), func(_104), func(_105), func(_106), func(_107), func(_108), func(_109), func(_110)
+#define FOREACH_111(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94, _95, _96, _97, _98, _99, _100, _101, _102, _103, _104, _105, _106, _107, _108, _109, _110, _111) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94), func(_95), func(_96), func(_97), func(_98), func(_99), func(_100), func(_101), func(_102), func(_103), func(_104), func(_105), func(_106), func(_107), func(_108), func(_109), func(_110), func(_111)
+#define FOREACH_112(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94, _95, _96, _97, _98, _99, _100, _101, _102, _103, _104, _105, _106, _107, _108, _109, _110, _111, _112) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94), func(_95), func(_96), func(_97), func(_98), func(_99), func(_100), func(_101), func(_102), func(_103), func(_104), func(_105), func(_106), func(_107), func(_108), func(_109), func(_110), func(_111), func(_112)
+#define FOREACH_113(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94, _95, _96, _97, _98, _99, _100, _101, _102, _103, _104, _105, _106, _107, _108, _109, _110, _111, _112, _113) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94), func(_95), func(_96), func(_97), func(_98), func(_99), func(_100), func(_101), func(_102), func(_103), func(_104), func(_105), func(_106), func(_107), func(_108), func(_109), func(_110), func(_111), func(_112), func(_113)
+#define FOREACH_114(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94, _95, _96, _97, _98, _99, _100, _101, _102, _103, _104, _105, _106, _107, _108, _109, _110, _111, _112, _113, _114) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94), func(_95), func(_96), func(_97), func(_98), func(_99), func(_100), func(_101), func(_102), func(_103), func(_104), func(_105), func(_106), func(_107), func(_108), func(_109), func(_110), func(_111), func(_112), func(_113), func(_114)
+#define FOREACH_115(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94, _95, _96, _97, _98, _99, _100, _101, _102, _103, _104, _105, _106, _107, _108, _109, _110, _111, _112, _113, _114, _115) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94), func(_95), func(_96), func(_97), func(_98), func(_99), func(_100), func(_101), func(_102), func(_103), func(_104), func(_105), func(_106), func(_107), func(_108), func(_109), func(_110), func(_111), func(_112), func(_113), func(_114), func(_115)
+#define FOREACH_116(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94, _95, _96, _97, _98, _99, _100, _101, _102, _103, _104, _105, _106, _107, _108, _109, _110, _111, _112, _113, _114, _115, _116) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94), func(_95), func(_96), func(_97), func(_98), func(_99), func(_100), func(_101), func(_102), func(_103), func(_104), func(_105), func(_106), func(_107), func(_108), func(_109), func(_110), func(_111), func(_112), func(_113), func(_114), func(_115), func(_116)
+#define FOREACH_117(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94, _95, _96, _97, _98, _99, _100, _101, _102, _103, _104, _105, _106, _107, _108, _109, _110, _111, _112, _113, _114, _115, _116, _117) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94), func(_95), func(_96), func(_97), func(_98), func(_99), func(_100), func(_101), func(_102), func(_103), func(_104), func(_105), func(_106), func(_107), func(_108), func(_109), func(_110), func(_111), func(_112), func(_113), func(_114), func(_115), func(_116), func(_117)
+#define FOREACH_118(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94, _95, _96, _97, _98, _99, _100, _101, _102, _103, _104, _105, _106, _107, _108, _109, _110, _111, _112, _113, _114, _115, _116, _117, _118) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94), func(_95), func(_96), func(_97), func(_98), func(_99), func(_100), func(_101), func(_102), func(_103), func(_104), func(_105), func(_106), func(_107), func(_108), func(_109), func(_110), func(_111), func(_112), func(_113), func(_114), func(_115), func(_116), func(_117), func(_118)
+#define FOREACH_119(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94, _95, _96, _97, _98, _99, _100, _101, _102, _103, _104, _105, _106, _107, _108, _109, _110, _111, _112, _113, _114, _115, _116, _117, _118, _119) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94), func(_95), func(_96), func(_97), func(_98), func(_99), func(_100), func(_101), func(_102), func(_103), func(_104), func(_105), func(_106), func(_107), func(_108), func(_109), func(_110), func(_111), func(_112), func(_113), func(_114), func(_115), func(_116), func(_117), func(_118), func(_119)
+#define FOREACH_120(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94, _95, _96, _97, _98, _99, _100, _101, _102, _103, _104, _105, _106, _107, _108, _109, _110, _111, _112, _113, _114, _115, _116, _117, _118, _119, _120) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94), func(_95), func(_96), func(_97), func(_98), func(_99), func(_100), func(_101), func(_102), func(_103), func(_104), func(_105), func(_106), func(_107), func(_108), func(_109), func(_110), func(_111), func(_112), func(_113), func(_114), func(_115), func(_116), func(_117), func(_118), func(_119), func(_120)
+#define FOREACH_121(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94, _95, _96, _97, _98, _99, _100, _101, _102, _103, _104, _105, _106, _107, _108, _109, _110, _111, _112, _113, _114, _115, _116, _117, _118, _119, _120, _121) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94), func(_95), func(_96), func(_97), func(_98), func(_99), func(_100), func(_101), func(_102), func(_103), func(_104), func(_105), func(_106), func(_107), func(_108), func(_109), func(_110), func(_111), func(_112), func(_113), func(_114), func(_115), func(_116), func(_117), func(_118), func(_119), func(_120), func(_121)
+#define FOREACH_122(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94, _95, _96, _97, _98, _99, _100, _101, _102, _103, _104, _105, _106, _107, _108, _109, _110, _111, _112, _113, _114, _115, _116, _117, _118, _119, _120, _121, _122) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94), func(_95), func(_96), func(_97), func(_98), func(_99), func(_100), func(_101), func(_102), func(_103), func(_104), func(_105), func(_106), func(_107), func(_108), func(_109), func(_110), func(_111), func(_112), func(_113), func(_114), func(_115), func(_116), func(_117), func(_118), func(_119), func(_120), func(_121), func(_122)
+#define FOREACH_123(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94, _95, _96, _97, _98, _99, _100, _101, _102, _103, _104, _105, _106, _107, _108, _109, _110, _111, _112, _113, _114, _115, _116, _117, _118, _119, _120, _121, _122, _123) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94), func(_95), func(_96), func(_97), func(_98), func(_99), func(_100), func(_101), func(_102), func(_103), func(_104), func(_105), func(_106), func(_107), func(_108), func(_109), func(_110), func(_111), func(_112), func(_113), func(_114), func(_115), func(_116), func(_117), func(_118), func(_119), func(_120), func(_121), func(_122), func(_123)
+#define FOREACH_124(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94, _95, _96, _97, _98, _99, _100, _101, _102, _103, _104, _105, _106, _107, _108, _109, _110, _111, _112, _113, _114, _115, _116, _117, _118, _119, _120, _121, _122, _123, _124) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94), func(_95), func(_96), func(_97), func(_98), func(_99), func(_100), func(_101), func(_102), func(_103), func(_104), func(_105), func(_106), func(_107), func(_108), func(_109), func(_110), func(_111), func(_112), func(_113), func(_114), func(_115), func(_116), func(_117), func(_118), func(_119), func(_120), func(_121), func(_122), func(_123), func(_124)
+#define FOREACH_125(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94, _95, _96, _97, _98, _99, _100, _101, _102, _103, _104, _105, _106, _107, _108, _109, _110, _111, _112, _113, _114, _115, _116, _117, _118, _119, _120, _121, _122, _123, _124, _125) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94), func(_95), func(_96), func(_97), func(_98), func(_99), func(_100), func(_101), func(_102), func(_103), func(_104), func(_105), func(_106), func(_107), func(_108), func(_109), func(_110), func(_111), func(_112), func(_113), func(_114), func(_115), func(_116), func(_117), func(_118), func(_119), func(_120), func(_121), func(_122), func(_123), func(_124), func(_125)
+#define FOREACH_126(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94, _95, _96, _97, _98, _99, _100, _101, _102, _103, _104, _105, _106, _107, _108, _109, _110, _111, _112, _113, _114, _115, _116, _117, _118, _119, _120, _121, _122, _123, _124, _125, _126) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94), func(_95), func(_96), func(_97), func(_98), func(_99), func(_100), func(_101), func(_102), func(_103), func(_104), func(_105), func(_106), func(_107), func(_108), func(_109), func(_110), func(_111), func(_112), func(_113), func(_114), func(_115), func(_116), func(_117), func(_118), func(_119), func(_120), func(_121), func(_122), func(_123), func(_124), func(_125), func(_126)
+#define FOREACH_127(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94, _95, _96, _97, _98, _99, _100, _101, _102, _103, _104, _105, _106, _107, _108, _109, _110, _111, _112, _113, _114, _115, _116, _117, _118, _119, _120, _121, _122, _123, _124, _125, _126, _127) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94), func(_95), func(_96), func(_97), func(_98), func(_99), func(_100), func(_101), func(_102), func(_103), func(_104), func(_105), func(_106), func(_107), func(_108), func(_109), func(_110), func(_111), func(_112), func(_113), func(_114), func(_115), func(_116), func(_117), func(_118), func(_119), func(_120), func(_121), func(_122), func(_123), func(_124), func(_125), func(_126), func(_127)
+#define FOREACH_128(func, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72, _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86, _87, _88, _89, _90, _91, _92, _93, _94, _95, _96, _97, _98, _99, _100, _101, _102, _103, _104, _105, _106, _107, _108, _109, _110, _111, _112, _113, _114, _115, _116, _117, _118, _119, _120, _121, _122, _123, _124, _125, _126, _127, _128) func(_1), func(_2), func(_3), func(_4), func(_5), func(_6), func(_7), func(_8), func(_9), func(_10), func(_11), func(_12), func(_13), func(_14), func(_15), func(_16), func(_17), func(_18), func(_19), func(_20), func(_21), func(_22), func(_23), func(_24), func(_25), func(_26), func(_27), func(_28), func(_29), func(_30), func(_31), func(_32), func(_33), func(_34), func(_35), func(_36), func(_37), func(_38), func(_39), func(_40), func(_41), func(_42), func(_43), func(_44), func(_45), func(_46), func(_47), func(_48), func(_49), func(_50), func(_51), func(_52), func(_53), func(_54), func(_55), func(_56), func(_57), func(_58), func(_59), func(_60), func(_61), func(_62), func(_63), func(_64), func(_65), func(_66), func(_67), func(_68), func(_69), func(_70), func(_71), func(_72), func(_73), func(_74), func(_75), func(_76), func(_77), func(_78), func(_79), func(_80), func(_81), func(_82), func(_83), func(_84), func(_85), func(_86), func(_87), func(_88), func(_89), func(_90), func(_91), func(_92), func(_93), func(_94), func(_95), func(_96), func(_97), func(_98), func(_99), func(_100), func(_101), func(_102), func(_103), func(_104), func(_105), func(_106), func(_107), func(_108), func(_109), func(_110), func(_111), func(_112), func(_113), func(_114), func(_115), func(_116), func(_117), func(_118), func(_119), func(_120), func(_121), func(_122), func(_123), func(_124), func(_125), func(_126), func(_127), func(_128)
+
+#define FOREACH_N(n,m,...) FOREACH_##n(m,__VA_ARGS__)
+#define FOREACH_DO(n, m, ... ) FOREACH_N(n, m, __VA_ARGS__)
+#define FOREACH(m, ...) FOREACH_DO(VA_COUNT(__VA_ARGS__), m, __VA_ARGS__)
+
+void print_impl(size_t n, TypeInfo *args);
+// void printf_impl(char *fmt, size_t n, const TypeInfo *args);
+void write_impl(char *fmt, size_t n, const TypeInfo *args);
+
+// Better Printing API
+#define my_print(...) \
+    do { \
+        TypeInfo _args[] = { FOREACH(TypedArg, __VA_ARGS__) }; \
+        print_impl(sizeof(_args)/sizeof(_args[0]), _args); \
+    } while(0)
+
+#define my_println(...) my_print(__VA_ARGS__, "\n")
+
+// @Incomplete I want thjp_is _Generic write(<type>) and firing off to write_string, write_file, write_output
+#define write_string(dst, ...) \
+    do { \
+        TypeInfo _args[] = { FOREACH(TypedArg, __VA_ARGS__) }; \
+        write_string_impl(dst, sizeof(_args)/sizeof(_args[0]), _args); \
+    } while(0)
 
 
 // IO 
@@ -114,20 +415,19 @@ typedef struct {
     bool use_relative; // Don't include PWD if searching inside it
 } readdir_opts;
 
-dynarray(string) read_dir_cstr(string path, readdir_opts opts); // @Memory
-dynarray(string) read_dir_string(string path, readdir_opts opts); // @Memory
+typedef dynarray(string) StringList;
+StringList read_dir_cstr(string path, readdir_opts opts); // @Memory
+StringList read_dir_string(string path, readdir_opts opts); // @Memory
 
 #define read_dir(path, ...) _Generic((path), \
-        char* read_dir_cstr(path); \
-        string: read_dir_string(path, #__VA_ARGS__); 
+        char* read_dir_cstr, \
+        string: read_dir_string \
+        )(path, #__VA_ARGS__)
 
 
 string read_entire_file(string filepath); // @Memory
 
-#endif // _JP_BASIC_H
 
-// ----------------------------------
-#ifdef JP_BASIC_IMPL
 // 
 // BEGIN IMPLEMENTATION
 //
@@ -140,7 +440,8 @@ string read_entire_file(string filepath); // @Memory
 // libc string.h replacements
 //
 
-string cstrlen(char source[static 1])
+// Returns string with len **NOT** including null terminator
+string cstrlen(char *source)
 {
     string result = { .data = source };
     // @Incomplete - compiler does not optimise this out 
@@ -149,49 +450,6 @@ string cstrlen(char source[static 1])
 
     for (result.len = 0; source[result.len] != '\0' && result.len < SIZE_MAX; result.len++);
     return result;
-}
-
-// We assume you have reserved at least <size> bytes in dest
-// Or are passing dest as NULL to have the function allocate for you @Memory
-string cstrcpy(char dest[static 1], const char source[static 1], size_t size) 
-{
-    // @Incomplete - compiler does not optimise this out 
-    // Rewrite using SIMD instructions
-    // These should be gaurded and default to this if not avail
-    string copied;
-    if (!dest) {
-        copied.data = (char*)malloc(size * sizeof(char));
-        assert(copied.data && "Failed to allocate memory for string");
-        copied._owner = copied.data;
-    }
-    for (copied.len = 0; source[copied.len] != '\0' && copied.len <= size-1; copied.len++) dest[copied.len] = source[copied.len];
-    dest[copied.len] = '\0';
-    return copied;
-}
-
-bool cstrcmp(const char a[static 1], const char b[static 1])
-{
-    // @Incomplete - compiler does not optimise this out 
-    // Rewrite using SIMD instructions
-    // These should be gaurded and default to this if not avail
-    size_t i;
-    for (i = 0; a[i] != '\0' && b[i] != '\0'; i++) {
-        if (a[i] != b[i]) return false;
-    }
-    return true; 
-}
-
-
-int cstrcontains(char haystack[static 1], char needle[static 1])
-{
-    string n = cstrlen(needle);
-    string h = cstrlen(haystack);
-    if (n.len > h.len) return -1;
-    for (int i = 0; haystack[n.len + i] == '\0'; i++) {
-        if (haystack[i] != *needle) continue;
-        if (cstrcmp(&haystack[i], needle)) return i;
-    }
-    return -1;
 }
 
 bool jp_isspace(char c)
@@ -207,25 +465,52 @@ bool jp_isspace(char c)
            c == '\f';
 }
 
+string string_copy(string *dest, const string source) 
+{
+    // Rewrite using SIMD instructions
+    // These should be gaurded and default to this if not avail
+    if (!dest) {
+        *dest = (string){
+            .len = source.len + 1,
+            ._owner = true,
+        };
+    }
+    assert(dest->_owner);
+    if (source.len + dest->len > dest->_cap) {
+        printf("DEBUG: allocating memory for string!");
+        dest->data = realloc(dest->data, (dest->len + source.len) * sizeof(char));
+        assert(dest->data && "Failed to allocate memory for string");
+        dest->_cap = dest->len + source.len;
+    }
+    for (size_t i = 0; source.len > i; i++) dest->data[dest->len + i] = source.data[i];
+    dest->len += source.len;
+    dest->data[dest->len + 1] = '\0';
+    return *dest;
+}
+
+
 //
 // string Implementation start
 //
-
-string string_from(char cstr[static 1]) 
-{
-    return cstrlen(cstr); 
-}
+bool _string_cmp_unsafe(const char *haystack, const string needle); // internal only
 
 // String conditionals
-bool string_cmp(const string source, const string test)
+inline bool string_cmp(const string haystack, const string needle)
 { 
-    if (source.len < test.len) return false;
+    if (haystack.len < needle.len) return false;
+    return _string_cmp_unsafe(haystack.data, needle);
+}
+
+// Internal only!!
+// Does not bound check haystack for null terminator
+// Assumes you have checked haystack >= needle.len
+bool _string_cmp_unsafe(const char *haystack, const string needle)
+{
     // @Incomplete - compiler does not optimise this out 
     // Rewrite using SIMD instructions
     // These should be gaurded and default to this if not avail
-    size_t i;
-    for (i = 0; i < test.len; i++) {
-        if (source.data[i] != test.data[i]) return false;
+    for (size_t i = 0; i < needle.len; i++) {
+        if (haystack[i] != needle.data[i]) return false;
     }
     return true;
 }
@@ -235,19 +520,20 @@ int string_indexof(const string haystack, const string needle)
     if (haystack.len < needle.len) return -1;
     for (size_t i = 0; i < haystack.len - needle.len; i++) {
         if (haystack.data[i] != *needle.data) continue;
-        if (cstrcmp(&haystack.data[i], needle.data)) return i;
+        if (_string_cmp_unsafe(&haystack.data[i], needle)) return i;
     }
     return -1;
 }
 
-bool string_contains(const string haystack, const string needle)
+inline bool string_contains(const string haystack, const string needle)
 {
     return string_indexof(haystack, needle) >= 0;
 }
 
-// Slice manipulation (not owner)
 string string_trim_whitespace(string source)
 {
+    if (source.len == 0) return source;
+
     size_t trimstart, trimend;
     for (trimstart = 0; trimstart < source.len && jp_isspace(source.data[trimstart]); trimstart++);
     for (trimend = source.len; trimend > trimstart && jp_isspace(source.data[trimend-1]); trimend--);
@@ -258,9 +544,10 @@ string string_trim_whitespace(string source)
     };
 }
 
-string string_trim_prefix(string source, char prefix[static 1])
+// @TODO Wrap this in generic for 2nd arg string/char*
+string string_trim_prefix(string source, char *prefix)
 {
-    string needle = string_from(prefix);
+    string needle = cstrlen(prefix);
     if (!string_cmp(source, needle)) return source;
 
     return (string){
@@ -269,73 +556,50 @@ string string_trim_prefix(string source, char prefix[static 1])
     };
 }
 
-string string_trim_suffix(string source, char suffix[static 1])
+string string_trim_suffix(string source, char *suffix)
 {
-    string needle = string_from(suffix);
+    string needle = cstrlen(suffix);
     if (source.len < needle.len) return source;
 
-    string test   = {
-        .data = &source.data[source.len - needle.len],
-        .len = needle.len,
-    };
-    if (!string_cmp(test, needle)) return source;
-
+    if (!_string_cmp_unsafe(&source.data[source.len-needle.len], needle)) return source;
     source.len = source.len - needle.len - 1;
     return source;
 }
 
-string string_split_iter(string source[static 1], char raw[static 1])
+string string_trim_before(string source, char *target)
 {
-    if (source->len == 0) return (string){0};
-    string delim = string_from(raw);
-
-    // size_t maxlen = source->len - delim.len;
-     for(size_t index = 0; index < source->len; index++) {
-        if (cstrcmp(&source->data[index], delim.data)) {
-            index++;
-            string before = {
-                .data = source->data,
-                .len =  index - 1,
-            };
-            source->data = &source->data[index];
-            source->len = source->len - index;
-            return before;
-        }
-    }
-    return (string){0};
-}
-
-string string_trim_before(string source, char target[static 1])
-{
-    string needle = string_from(target);
+    string needle = cstrlen(target);
     size_t index = string_indexof(source, needle);
     return (string){
         .data = &source.data[index],
         .len = source.len - index,
     };
 }
-string string_trim_after(string source, char target[static 1])
+string string_trim_after(string source, char *target)
 {
-    string needle = string_from(target);
+    string needle = cstrlen(target);
     size_t index = string_indexof(source, needle);
     source.len = index;
     return source;
 }
 
 // String manipulation (owning)
-size_t string_write(string *sb, char *text) 
+// Dest is pointer to reduce noise calling API
+// pass NULL to allocate new string
+// pass pointer to string if wanting to append
+string string_write(string *dest, const string source) 
 {
-    assert(sb->_owner);
-    string t = cstrlen(text);
-    if (sb->len + t.len > sb->_cap) {
-        if (sb->_cap == 0) sb->_cap = t.len;
-        sb->_cap *= 2;
-        sb->data = realloc(sb->data, sizeof(char)*sb->_cap);
+    if (dest == NULL) { *dest = (string){ ._owner = true }; }
+    assert(dest->_owner); 
+    if (dest->len + source.len >= dest->_cap) {
+        if (dest->_cap == 0) dest->_cap = source.len;
+        dest->_cap *= 2;
+        dest->data = realloc(dest->data, sizeof(char)*dest->_cap);
     }
-    size_t copied = cstrcpy(&sb->data[sb->len++], text, t.len).len;
-    assert(copied == t.len && "Failure in cstrcpy");
-    sb->len += t.len;
-    return copied;
+    for (size_t i = 0; i < source.len; i++) dest->data[dest->len+i] = source.data[i];
+    dest->data[dest->len+1] = '\0'; // In case we ever deal with C apis...
+    dest->len += source.len;
+    return *dest;
 }
 
 /*
@@ -359,54 +623,451 @@ void sb_appendf(StringBuilder *sb, const char *fmt, ...)
 }
 */
 
-void sb_appends(string *sb, string slice)
+// void sb_appends(string *sb, string slice)
+// {
+//     assert(sb->_owner);
+//     if (sb->len >= sb->_cap) {
+//         if (sb->_cap == 0) sb->_cap = slice.len;
+//         sb->_cap *= 2;
+//         sb->data = realloc(sb->data, sb->_cap*sizeof(char));
+//         assert(sb->data && "We requested more memory but the computer said \"No\"!");
+//     }
+//     cstrcpy(&sb->data[sb->len], slice.data, slice.len);
+// }
+
+// @Warning manipulates source string!!
+string string_split_iter(string *source, string delim)
 {
-    assert(sb->_owner);
-    if (sb->len >= sb->_cap) {
-        if (sb->_cap == 0) sb->_cap = slice.len;
-        sb->_cap *= 2;
-        sb->data = realloc(sb->data, sb->_cap*sizeof(char));
-        assert(sb->data && "We requested more memory but the computer said \"No\"!");
+    assert(delim.len > 0 && "delimiter provided jp_is empty!");
+    if (source->len == 0) return (string){0};
+
+     for(size_t index = 0; index < source->len; index++) {
+        if (_string_cmp_unsafe(&source->data[index], delim)) {
+            index++;
+            string before = {
+                .data = source->data,
+                .len =  index - 1,
+                .next = true,
+            };
+            source->data = &source->data[index];
+            source->len = source->len - index;
+            return before;
+        }
     }
-    cstrcpy(&sb->data[sb->len], slice.data, slice.len);
+    return (string){0};
+}
+
+// Better Printing!
+// @Incomplete - basic implementation only atm, we should be writing to buffers to be better practice
+string pct = {
+    .data = "%",
+    .len  = 1,
+};
+
+/*
+ * Syntax to add (after % for customising)
+    -  = Left-align
+    +  = Always show sign (ignored for strings)
+   ' ' = Space if positive (ignored for strings)
+    0  = Zero-pad (ignored for strings)
+    #  = Alternate form
+    U  = Uppercase (ignored for non-strings)
+    p  = pointer
+    width:
+        Minimum field width.
+            printf("%5d", 42);   // "   42"
+            printf("%-5d", 42);  // "42   "
+        Dynamic width:
+            printf("%*d", 5, 42);
+    precision:
+        For integers
+            Minimum number of digits:
+            printf("%.5d", 42);  // 00042
+        For floats
+            Digits after decimal:
+            printf("%.3f", 3.14159); // 3.142
+        For strings
+            Maximum characters:
+            printf("%.4s", "abcdef"); // abcd
+        Dynamic precision:
+            printf("%.*f", 2, 3.14159);
+    .  = start size logic
+        *  = dynamic width
+        \d = (digit) width
+*/
+
+#if defined(_MSC_VER)
+#  define DLL_IMPORT __declspec(dllimport)
+#elif defined(__GNUC__)
+#  define DLL_IMPORT __attribute__((dllimport))
+#else
+#  define DLL_IMPORT
+#endif
+
+DLL_IMPORT void* __stdcall GetStdHandle(unsigned long);
+DLL_IMPORT int   __stdcall WriteFile(
+    void* h,
+    const void* buf,
+    unsigned long len,
+    unsigned long* written,
+    void* overlapped
+);
+
+
+#ifdef _WIN32
+#define STDIN  0
+#define STDOUT 0
+#define STDERR 0
+#define WIN_STDIN  ((unsigned long)-10)
+#define WIN_STDOUT ((unsigned long)-11)
+#define WIN_STDERR ((unsigned long)-12)
+void *stdio_handles[3] = {0}; // index into to get handle then cast depending on system
+__attribute__((dllimport)) void* __stdcall GetStdHandle(unsigned long);
+__attribute__((dllimport)) int   __stdcall WriteFile(void *, const void*, unsigned long, unsigned long*, void*);
+#elif __linux__
+#endif // _WIN32
+
+size_t __write(void *dest, char *data, size_t len)
+{
+#ifdef _WIN32
+    unsigned long written;
+    WriteFile(dest, data, len, &written, NULL);
+#else
+#error Unsupported OS TODO!!!
+#endif
+    return (size_t)written;
+}
+
+string __write_string_and_flush(void *dest, string *source)
+{ 
+    __write(dest, source->data, source->len);
+    source->len = 0;
+    return *source;
+}
+
+size_t __print(char *data, size_t len) {
+#ifdef _WIN32
+    if (!stdio_handles[STDOUT]) {
+        stdio_handles[STDOUT] = GetStdHandle(WIN_STDOUT);
+    }
+#endif
+    return __write(stdio_handles[STDOUT], data, len);
+}
+
+//#define ALWAYS_SHOW_SIGN 1 << 0
+void format_u64(string *buf, unsigned long long value, u8 opts) 
+{
+    (void)opts;
+    char reversed[20];   // max for 64-bit decimal
+    int n = 0;
+
+    do {
+        reversed[n++] = '0' + value % 10;
+        value /= 10;
+    } while (value);
+    while (n--) {
+        buf->data[buf->len++] = reversed[n];
+    }
+}
+
+void format_s64(string *buf, long long value, u8 opts)
+{ 
+    if (value <  0) {
+        buf->data[buf->len++] = '-';
+        value = -value;
+    } 
+    format_u64(buf, (unsigned long long)value, opts);
+}
+
+// TODO - this should have a non-itera
+
+// IMPORTANT! Updates *args pointing to next arg on each loop,
+//            if you need to keep access to the start of the list 
+//            copy the address!
+//
+// Returns true if more args to process
+bool format_args_into_iter(string *buf, size_t *argc, TypeInfo **args)
+{
+    if (*argc == 0) return false; // nothing to do 
+    buf->next = true;
+    TypeInfo current;
+    string boolstr[] = {
+        cstrlen("false"),
+        cstrlen("true"),
+    }; 
+
+    string working;
+    string result;
+    string line;
+    size_t advanceby;
+    while (*argc > 0) {
+        current = *args[0];
+        // check we can fit at least a double...
+        if (buf->len + 40 >= buf->_cap) return true;
+        // saves doing an if on each number branch...
+
+        switch(current.tag) {
+            // Numbers are all handled the same, could probably do this during the tag and just do l and d (long and double all types are representable by)
+            // But then it'd just push this switch statement into another function, so meh.
+            // @Incomplete @cleanup we wouldn't have to switch twice we could just if T_STR do string else do number which does this!!!
+            //
+            // Numbers not in format string have a space (' ') appended
+            case T_CHAR:
+                // printf("DEBUG: handling T_CHAR\n");
+                format_s64(buf, current.c, 0);
+                buf->data[buf->len++] = ' ';
+                break;
+            case T_SCHAR:
+                // printf("DEBUG: handling T_SCHAR\n");
+                format_s64(buf, current.sc, 0);
+                buf->data[buf->len++] = ' ';
+                break;
+            case T_SHORT:
+                // printf("DEBUG: handling T_SHORT\n");
+                format_s64(buf, current.sh, 0);
+                buf->data[buf->len++] = ' ';
+                break;
+            case T_INT:  
+                // printf("DEBUG: handling T_INT\n");
+                format_s64(buf, current.i, 0);
+                buf->data[buf->len++] = ' ';
+                break;
+            case T_LONG:
+                // printf("DEBUG: handling T_LONG\n");
+                format_s64(buf, current.l, 0);
+                buf->data[buf->len++] = ' ';
+                break;
+            case T_LLONG:
+                // printf("DEBUG: handling T_LLONG\n");
+                format_s64(buf, current.ll, 0);
+                buf->data[buf->len++] = ' ';
+                break;
+            case T_UCHAR:
+                // printf("DEBUG: handling T_UCHAR\n");
+                format_u64(buf, current.uc, 0);
+                buf->data[buf->len++] = ' ';
+                break;
+            case T_USHORT:
+                // printf("DEBUG: handling T_USHORT\n");
+                format_u64(buf, current.ush, 0);
+                buf->data[buf->len++] = ' ';
+                break;
+            case T_UINT:  
+                // printf("DEBUG: handling T_UINT\n");
+                format_u64(buf, current.ui, 0);
+                buf->data[buf->len++] = ' ';
+                break;
+            case T_ULONG:
+                // printf("DEBUG: handling T_ULONG\n");
+                format_u64(buf, current.ul, 0);
+                buf->data[buf->len++] = ' ';
+                break;
+            case T_ULLONG:
+                // printf("DEBUG: handling T_ULLONG\n");
+                format_u64(buf, current.ull, 0);
+                buf->data[buf->len++] = ' ';
+                break;
+            case T_DOUBLE:
+                // printf("DEBUG: handling T_DOUBLE\n");
+                panic("Not implemented!");
+                // format_number(buf, current.i, 0);
+                break;
+            case T_BOOL:  
+                result = boolstr[current.b ? 1 : 0];
+                for (size_t i = 0; i < result.len; i++) {
+                    buf->data[buf->len++] = result.data[i];
+                }
+                break;
+            case T_STR:  
+                // printf("DEBUG: handling T_STR\n");
+                working = cstrlen(current.s);
+                while ((line = string_split_iter(&working, pct)).next) {
+                    // copy into buffer until either we finish the string or we fill up the buffer
+                    for (advanceby = 0;buf->len < buf->_cap && line.len > 0; advanceby++) {
+                        buf->data[buf->len++] = line.data[advanceby];
+                        line.len--;
+                    }
+
+                    // advance raw source string in case we run out of space and are called again
+                    // this gives the caller the same view as 'working' (and thus our next call if any)
+                    current.s = &current.s[advanceby-1]; // -1 to preserve the '%' we cut off!! subsequent calls will pick up where we left off :)
+
+                    if (line.len > 0) {
+                        // We filled up the buffer before we finished writing the string
+                        return true;
+                    }
+
+                    // we had enough space to write the string UP TO the % we are formatting...
+
+                    // check we can fit at least a double...
+                    if (buf->len + 40 >= buf->_cap) return true;
+                    // saves doing an if on each number branch...
+
+                    // check if we had an escaped % OR no more args (print the %)
+                    if (working.len > 0 && (working.data[0] == '%' || *argc == 1)) {
+                        working.data++;
+                        working.len--;
+                        buf->data[buf->len++] = '%';
+                        continue;
+                    }
+
+                    TypeInfo next = (*args)[1];
+                    // We've already checked we know we have at least 1 or more arg so have to format
+                    switch(next.tag) {
+                        case T_CHAR:
+                            // printf("DEBUG: handling formatted T_CHAR\n");
+                            format_s64(buf, next.c, 0);
+                            break;
+                        case T_SCHAR:
+                            // printf("DEBUG: handling formatted T_SCHAR\n");
+                            format_s64(buf, next.sc, 0);
+                            break;
+                        case T_SHORT:
+                            // printf("DEBUG: handling formatted T_SHORT\n");
+                            format_s64(buf, next.sh, 0);
+                            break;
+                        case T_INT:  
+                            // printf("DEBUG: handling formatted T_INT\n");
+                            format_s64(buf, next.i, 0);
+                            break;
+                        case T_LONG:
+                            // printf("DEBUG: handling formatted T_LONG\n");
+                            format_s64(buf, next.l, 0);
+                            break;
+                        case T_LLONG:
+                            // printf("DEBUG: handling formatted T_LLONG\n");
+                            format_s64(buf, next.ll, 0);
+                            break;
+                        case T_UCHAR:
+                            // printf("DEBUG: handling formatted T_UCHAR\n");
+                            format_u64(buf, next.uc, 0);
+                            break;
+                        case T_USHORT:
+                            // printf("DEBUG: handling formatted T_USHORT\n");
+                            format_u64(buf, next.ush, 0);
+                            break;
+                        case T_UINT:  
+                            // printf("DEBUG: handling formatted T_UINT\n");
+                            format_u64(buf, next.ui, 0);
+                            break;
+                        case T_ULONG:
+                            // printf("DEBUG: handling formatted T_ULONG\n");
+                            format_u64(buf, next.ul, 0);
+                            break;
+                        case T_ULLONG: 
+                            // printf("DEBUG: handling formatted T_ULLONG\n");
+                            format_u64(buf, next.ull, 0);
+                            break;
+                        case T_BOOL:  
+                            // printf("DEBUG: handling formatted T_BOOL\n");
+                            result = boolstr[next.b ? 1 : 0];
+                            for (size_t i = 0; i < result.len; i++) {
+                                buf->data[buf->len++] = result.data[i];
+                            }
+                            break;
+                        case T_STR: // @TODO
+                        default:
+                            panic("Unhandled type!");
+                    }
+                    // *buf = string_copy(buf, line);
+                    // Replace the arg we consumed with the string we're formatting
+                    (*args)[1] = (*args)[0];
+                    // Increment args to remove consume from total
+                    (*args) = &(*args)[1];
+                    (*argc)--;
+                }
+                // @CopyPasta from a few lines above
+                for (advanceby = 0;buf->len < buf->_cap && working.len > 0; advanceby++) {
+                    buf->data[buf->len++] = working.data[advanceby];
+                    working.len--;
+                }
+                // advance raw source string in case we run out of space and are called again
+                // this gives the caller the same view as 'working' (and thus our next call if any)
+                (*args)[0].s = &(*args)[0].s[advanceby]; // no need to preserve the '%' we have handled them all in the loop above
+
+                if (working.len > 0) return true;
+                break; // don't  fall through!
+            default:
+                panic("Unhandled type!");
+        }
+        (*args) = &(*args)[1]; // Update args base address
+        (*argc)--;
+    }
+    return false;
+}
+
+#define PRINT_BUF_SIZE 4096
+void print_impl(size_t argc, TypeInfo *args) 
+{
+    if (argc == 0) return; // nothing to do 
+#ifdef _WIN32
+    if (!stdio_handles[STDOUT]) {
+        stdio_handles[STDOUT] = GetStdHandle(WIN_STDOUT);
+    }
+#endif
+    char _buf[PRINT_BUF_SIZE];
+    string buf = {
+        ._owner = true,
+        .data = _buf,
+        .len = 0,
+        ._cap = PRINT_BUF_SIZE,
+    };
+    while (format_args_into_iter(&buf, &argc, &args)) {
+        __write_string_and_flush(stdio_handles[STDOUT], &buf);
+    }
+    if (buf.len > 0) __write_string_and_flush(stdio_handles[STDOUT], &buf);
+}
+
+// like sprintf except we know the types and can grow the buffer
+void write_string_impl(string *dest, size_t argc, TypeInfo *args) 
+{
+    assert("Passed NULL to write_string" && dest);
+    if (!dest->data) {
+        dest->_owner = true;
+        dest->_cap   = 256;
+        dest->data   = (char *)malloc(dest->_cap * sizeof(char));
+    }
+    assert(dest->_owner); // @Incomplete this lib should make a copy of and make an owner
+    while (format_args_into_iter(dest, &argc, &args)) {
+        printf("whoops buffer ran out of space, allocating more...\n");
+        dest->data = (char*)realloc(dest->data, dest->_cap * 2 * sizeof(char));
+        assert("Failed to reallocate string buffer!" && dest->data);
+        dest->_cap = dest->_cap * 2;
+    }
 }
 
 // IO Implementation
-
-#undef    JP_BASIC_IMPL
-#endif // JP_BASIC_IMPL
-
 
 /* -- Prefix macro 
  * Commented and removed prefix calls but keeping in case we need to bring back...
  * Pollutes codebase for benefit of user (mostly me no doubt) 
  * and doubt we'll be brought into any new large codebases...
-#ifndef JP_CONCAT2
-#define JP_CONCAT2(a, b, c) a##b##c
-#endif // JP_CONCAT2
+#ifndef CONCAT2
+#define CONCAT2(a, b, c) a##b##c
+#endif // CONCAT2
 
 // Let user of lib specify optional prefix
-#ifdef JP_BASIC_PREFIX
+#ifdef BASIC_PREFIX
 
 // another of our headers was used 
 // but maybe user didn't give both a prefix...
 // define using prefix here as we have been told to
-#undef JP_CONCAT
-#define JP_CONCAT(a, b) JP_CONCAT2(a, _, b)
+#undef CONCAT
+#define CONCAT(a, b) JP_CONCAT2(a, _, b)
 
-#else  // JP_BASIC_PREFIX 
-#define JP_BASIC_PREFIX
+#else  // BASIC_PREFIX 
+#define BASIC_PREFIX
 
 // another of our headers was used 
 // but maybe user didn't give both a prefix...
 // define without prefix here as we have been told to
-#undef JP_CONCAT
-#define JP_CONCAT(a, b) b
+#undef CONCAT
+#define CONCAT(a, b) b
 
-#endif // JP_BASIC_PREFIX
+#endif // BASIC_PREFIX
 
-#ifndef JP_PREFIX
-#define JP_PREFIX(x) JP_CONCAT(JP_BASIC_PREFIX, x)
-#endif // JP_PREFIX
+#ifndef PREFIX
+#define PREFIX(x) JP_CONCAT(JP_BASIC_PREFIX, x)
+#endif // PREFIX
 */
-
+#endif // _BASIC_H
