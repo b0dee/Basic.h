@@ -849,6 +849,10 @@ size_t write_string_upto_cap(string *buf, string source)
 // @Incomplete I want to replace char * here with string and wrap any char* in cstrlen at time of call
 bool format_string_arg_into_buffer_iter(string *buf, size_t *argc, TypeInfo **args, char *source, bool isf)
 {
+    if (!source) {
+        write_string_upto_cap(buf, (string){.data="(null)", .len=6});
+        return false;
+    }
     string working, result, line, subline;
     working = cstrlen(source);
     u8 opts = 0;
@@ -925,6 +929,10 @@ bool format_string_arg_into_buffer_iter(string *buf, size_t *argc, TypeInfo **ar
                 }
                 break;
             case T_STR:
+                if (!next.s) {
+                    write_string_upto_cap(buf, (string){.data="(null)", .len=6});
+                    break;
+                }
                 subline = cstrlen(next.s);
                 // @CopyPasta from a few lines above
                 advanceby = write_string_upto_cap(buf, subline);
@@ -1009,6 +1017,7 @@ bool format_args_into_iter(string *buf, size_t *argc, TypeInfo **args, bool isf)
             case T_FLOAT:
             case T_DOUBLE:
                 format_f64(buf, current.d, -1);
+                buf->data[buf->len++] = ' ';
                 break;
             case T_LDOUBLE:
                 format_ldbl(buf, current.ld, -1);

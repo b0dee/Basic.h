@@ -59,6 +59,11 @@ int main(void)
     my_println("mixed", "%x", "%f", "%s");
     printf("mixed %%x %%f %%s\n");
 
+    sep("null handling");
+
+    my_println((char*)0);
+    printf     ("(null)\n");
+
     sep("my_printf (formatting)");
 
     my_printfln("hello world");
@@ -144,8 +149,9 @@ int main(void)
 
     sep("null handling");
 
-    my_printfln("null = %s", (char *)0); // @Bug we do not null check
-    printf("null = (nil)\n");
+    printf     ("null = %s\n", (char *)0);
+    my_printfln("null = %", (char *)0); // @Bug we do not null check
+    /* printf("null = (nil)\n"); */
 
     return 0;
 }
