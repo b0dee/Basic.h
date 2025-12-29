@@ -368,26 +368,38 @@ TypeInfo arg_cptr(const void *x)              { return (TypeInfo){ T_PTR,     .p
 #define FOREACH_DO(n, m, ... ) FOREACH_N(n, m, __VA_ARGS__)
 #define FOREACH(m, ...) FOREACH_DO(VA_COUNT(__VA_ARGS__), m, __VA_ARGS__)
 
-void print_impl(size_t n, TypeInfo *args);
+void printf_impl(size_t n, TypeInfo *args, bool isf);
 // void printf_impl(char *fmt, size_t n, const TypeInfo *args);
-void write_impl(char *fmt, size_t n, const TypeInfo *args);
+void writef_impl(char *fmt, size_t n, const TypeInfo *args, bool isf);
 
 // Better Printing API
 #define my_print(...) \
     do { \
         TypeInfo _args[] = { FOREACH(TypedArg, __VA_ARGS__) }; \
-        print_impl(sizeof(_args)/sizeof(_args[0]), _args); \
+        printf_impl(sizeof(_args)/sizeof(_args[0]), _args, false); \
+    } while(0)
+
+#define my_printf(...) \
+    do { \
+        TypeInfo _args[] = { FOREACH(TypedArg, __VA_ARGS__) }; \
+        printf_impl(sizeof(_args)/sizeof(_args[0]), _args, true); \
     } while(0)
 
 #define my_println(...) my_print(__VA_ARGS__, "\n")
+#define my_printfln(...) my_printf(__VA_ARGS__, "\n")
 
 // @Incomplete I want thjp_is _Generic write(<type>) and firing off to write_string, write_file, write_output
 #define write_string(dst, ...) \
     do { \
         TypeInfo _args[] = { FOREACH(TypedArg, __VA_ARGS__) }; \
-        write_string_impl(dst, sizeof(_args)/sizeof(_args[0]), _args); \
+        writef_string_impl(dst, sizeof(_args)/sizeof(_args[0]), _args, false); \
     } while(0)
 
+#define writef_string(dst, ...) \
+    do { \
+        TypeInfo _args[] = { FOREACH(TypedArg, __VA_ARGS__) }; \
+        writef_string_impl(dst, sizeof(_args)/sizeof(_args[0]), _args, true); \
+    } while(0)
 
 // IO 
 #define IO_FILE    1
@@ -459,9 +471,11 @@ string string_copy(string *dest, const string source)
         };
     }
     assert(dest->_owner);
-    if (source.len + dest->len > dest->_cap) {
+    // extra 1 for null terminator though we do not include it in length
+    // safety measure to prevent us having issues with other C code (maybe disable later?)
+    if (source.len + 1 + dest->len > dest->_cap) {
         printf("DEBUG: allocating memory for string!");
-        dest->data = (char *)realloc(dest->data, (dest->len + source.len) * sizeof(char));
+        dest->data = (char *)realloc(dest->data, (dest->len + 1 + source.len) * sizeof(char));
         assert(dest->data && "Failed to allocate memory for string");
         dest->_cap = dest->len + source.len;
     }
@@ -721,7 +735,7 @@ size_t __write(void *dest, char *data, size_t len)
     return (size_t)written;
 }
 
-string __write_string_and_flush(void *dest, string *source)
+string __write_string(void *dest, string *source)
 { 
     __write(dest, source->data, source->len);
     source->len = 0;
@@ -767,39 +781,57 @@ string boolstr[] = {
     {.data = "true" , .len = 4, ._cap = 4},
 }; 
 
+size_t write_string_upto_cap(string *buf, string source)
+{
+    size_t advanceby;
+    // copy into buffer until either we finish the string or we fill up the buffer
+    for (advanceby = 0;buf->len < buf->_cap && source.len > 0; advanceby++) {
+        buf->data[buf->len++] = source.data[advanceby];
+        source.len--;
+    }
+    return advanceby;
+}
+
 // @Incomplete I want to replace char * here with string and wrap any char* in cstrlen at time of call
-size_t format_string_arg_into_buffer(string *buf, size_t *argc, TypeInfo **args, char *source)
+bool format_string_arg_into_buffer_iter(string *buf, size_t *argc, TypeInfo **args, char *source, bool isf)
 {
     string working, result, line, subline;
-    size_t advanceby;
     working = cstrlen(source);
+    u8 opts = 0;
+    size_t advanceby;
+    if (!isf) {
+        advanceby = write_string_upto_cap(buf, working);
+        (*args)[0].s = &(*args)[0].s[advanceby]; // no need to preserve the '%' we are not formatting
+        if (buf->len + 1 > buf->_cap) return true;
+        buf->data[buf->len++] = ' ';
+        return false;
+    }
     while ((line = string_split_iter(&working, pct)).next) {
-        // copy into buffer until either we finish the string or we fill up the buffer
-        for (advanceby = 0;buf->len < buf->_cap && line.len > 0; advanceby++) {
-            buf->data[buf->len++] = line.data[advanceby];
-            line.len--;
-        }
+        advanceby = write_string_upto_cap(buf, line);
 
         // advance raw source string in case we run out of space and are called again
         // this gives the caller the same view as 'working' (and thus our next call if any)
 
-        if (line.len > 0) {
+        if (line.len > advanceby) {
             // We filled up the buffer before we finished writing the string
-            return advanceby;
+            return true;
         }
 
         // we had enough space to write the string UP TO the % we are formatting...
 
         // check we can fit at least a double...
-        if (buf->len + 40 >= buf->_cap) return advanceby;
+        if (buf->len + 40 >= buf->_cap) return true;
         // saves doing an if on each number branch...
 
-        // check if we had an escaped % OR no more args (print the %)
-        if (working.len > 0 && (working.data[0] == '%' || *argc == 1)) {
-            working.data++;
-            working.len--;
-            buf->data[buf->len++] = '%';
-            continue;
+        if (working.len > 0) {
+            // check if we had an escaped % OR no more args (print the %)
+            if (working.data[0] == '%' || *argc == 1) {
+                working.data++;
+                working.len--;
+                buf->data[buf->len++] = '%';
+                continue;
+            }
+            // handle_printf_format_opts()
         }
 
         TypeInfo next = (*args)[1];
@@ -811,14 +843,14 @@ size_t format_string_arg_into_buffer(string *buf, size_t *argc, TypeInfo **args,
             case T_INT:  
             case T_LONG:
             case T_LLONG:
-                format_s64(buf, next.i, 0);
+                format_s64(buf, next.i, opts);
                 break;
             case T_UCHAR:
             case T_USHORT:
             case T_UINT:  
             case T_ULONG:
             case T_ULLONG: 
-                format_u64(buf, next.u, 0);
+                format_u64(buf, next.u, opts);
                 break;
             case T_DOUBLE:
             case T_LDOUBLE:
@@ -831,20 +863,20 @@ size_t format_string_arg_into_buffer(string *buf, size_t *argc, TypeInfo **args,
                     buf->data[buf->len++] = result.data[i];
                 }
                 break;
-            case T_STR: // @TODO
+            case T_STR:
                 subline = cstrlen(next.s);
                 // @CopyPasta from a few lines above
-                for (advanceby = 0;buf->len < buf->_cap && working.len > 0; advanceby++) {
-                    buf->data[buf->len++] = working.data[advanceby];
-                    working.len--;
-                }
+                advanceby = write_string_upto_cap(buf, subline);
                 // advance raw source string in case we run out of space and are called again
                 // this gives the caller the same view as 'working' (and thus our next call if any)
+                (*args)[1].s = &(*args)[1].s[advanceby]; 
 
-                if (subline.len > 0) return advanceby;
+                if (subline.len > advanceby) return true;
                 break;
 
             default:
+                // Once everything is implemented this will only fire for
+                // custom types... So we can handle custom types here?
                 panic("Unhandled type!");
         }
         // Replace the arg we consumed with the string we're formatting
@@ -853,31 +885,33 @@ size_t format_string_arg_into_buffer(string *buf, size_t *argc, TypeInfo **args,
         (*args) = &(*args)[1];
         (*argc)--;
     }
-    // @CopyPasta from a few lines above
-    for (advanceby = 0;buf->len < buf->_cap && working.len > 0; advanceby++) {
-        buf->data[buf->len++] = working.data[advanceby];
-        working.len--;
-    }
+    advanceby = write_string_upto_cap(buf, working);
     // advance raw source string in case we run out of space and are called again
     // this gives the caller the same view as 'working' (and thus our next call if any)
     (*args)[0].s = &(*args)[0].s[advanceby]; // no need to preserve the '%' we have handled them all in the loop above
 
-    if (working.len > 0) return advanceby;
-    return 0;
+    if (working.len > advanceby) return true;
+    return false;
 
 }
 
+// TODO
+// - Remaining basic types formatting
+// - Decide handling of each type for printf formatting semantics and implement
+// - Optimise handling and processing...
+// - Figure out how to do custom end user types...
+// - Tests for each of the features 
+//
 // IMPORTANT! Updates *args pointing to next arg on each loop,
 //            if you need to keep access to the start of the list 
 //            copy the address!
 //
 // Returns true if more args to process
-bool format_args_into_iter(string *buf, size_t *argc, TypeInfo **args)
+bool format_args_into_iter(string *buf, size_t *argc, TypeInfo **args, bool isf)
 {
     if (*argc == 0) return false; // nothing to do 
     buf->next = true;
     TypeInfo current;
-    size_t advanceby;
     string result;
     while (*argc > 0) {
         current = *args[0];
@@ -921,11 +955,11 @@ bool format_args_into_iter(string *buf, size_t *argc, TypeInfo **args)
                 buf->data[buf->len++] = ' ';
                 break;
             case T_STR:  
-                advanceby = format_string_arg_into_buffer(buf, argc, args, current.s);
-                // (*args)[0].s = &(*args)[0].s[advanceby]; 
-                if (advanceby > 0) return true;
+                if (format_string_arg_into_buffer_iter(buf, argc, args, current.s, isf)) return true;
                 break;
             default:
+                // Once everything is implemented this will only fire for
+                // custom types... So we can handle custom types here?
                 panic("Unhandled type!");
         }
         (*args) = &(*args)[1]; // Update args base address
@@ -935,7 +969,7 @@ bool format_args_into_iter(string *buf, size_t *argc, TypeInfo **args)
 }
 
 #define PRINT_BUF_SIZE 4096
-void print_impl(size_t argc, TypeInfo *args) 
+void printf_impl(size_t argc, TypeInfo *args, bool isf) 
 {
     if (argc == 0) return; // nothing to do 
 #ifdef _WIN32
@@ -943,6 +977,15 @@ void print_impl(size_t argc, TypeInfo *args)
         stdio_handles[STDOUT] = GetStdHandle(WIN_STDOUT);
     }
 #endif
+    // shortcut logic if we have 1 string arg to print
+    // send it straight to write
+    if (argc == 1 && args[0].tag == T_STR) {
+        my_println("we're skipping the format logic");
+        string towrite = cstrlen(args[0].s);
+        __write_string(stdio_handles[STDOUT], &towrite);
+        return;
+    }
+
     char _buf[PRINT_BUF_SIZE];
     string buf = {
         ._owner = true,
@@ -950,14 +993,16 @@ void print_impl(size_t argc, TypeInfo *args)
         .len = 0,
         ._cap = PRINT_BUF_SIZE,
     };
-    while (format_args_into_iter(&buf, &argc, &args)) {
-        __write_string_and_flush(stdio_handles[STDOUT], &buf);
+    while (format_args_into_iter(&buf, &argc, &args, isf)) {
+        __write_string(stdio_handles[STDOUT], &buf);
     }
-    if (buf.len > 0) __write_string_and_flush(stdio_handles[STDOUT], &buf);
+    if (buf.len > 0) __write_string(stdio_handles[STDOUT], &buf);
 }
 
+// TODO - ability to write raw bytes not converted to human format
+
 // like sprintf except we know the types and can grow the buffer
-void write_string_impl(string *dest, size_t argc, TypeInfo *args) 
+void writef_string_impl(string *dest, size_t argc, TypeInfo *args, bool isf)
 {
     assert("Passed NULL to write_string" && dest);
     if (!dest->data) {
@@ -966,8 +1011,13 @@ void write_string_impl(string *dest, size_t argc, TypeInfo *args)
         dest->data   = (char *)malloc(dest->_cap * sizeof(char));
     }
     assert(dest->_owner); // @Incomplete this lib should make a copy of and make an owner
-    while (format_args_into_iter(dest, &argc, &args)) {
-        printf("whoops buffer ran out of space, allocating more...\n");
+    if (argc == 1 && args[0].tag == T_STR) {
+        my_println("we're skipping the format logic");
+        string towrite = cstrlen(args[0].s);
+        string_copy(dest, towrite);
+        return;
+    }
+    while (format_args_into_iter(dest, &argc, &args, isf)) {
         dest->data = (char*)realloc(dest->data, dest->_cap * 2 * sizeof(char));
         assert("Failed to reallocate string buffer!" && dest->data);
         dest->_cap = dest->_cap * 2;
