@@ -792,6 +792,7 @@ size_t write_string_upto_cap(string *buf, string source)
     return advanceby;
 }
 
+
 // @Incomplete I want to replace char * here with string and wrap any char* in cstrlen at time of call
 bool format_string_arg_into_buffer_iter(string *buf, size_t *argc, TypeInfo **args, char *source, bool isf)
 {
@@ -800,10 +801,12 @@ bool format_string_arg_into_buffer_iter(string *buf, size_t *argc, TypeInfo **ar
     u8 opts = 0;
     size_t advanceby;
     if (!isf) {
+        string newline = {.data = "\n", .len = 1, ._cap = 1 };
+        bool isnewline = string_cmp(working, newline);
         advanceby = write_string_upto_cap(buf, working);
         (*args)[0].s = &(*args)[0].s[advanceby]; // no need to preserve the '%' we are not formatting
-        if (buf->len + 1 > buf->_cap) return true;
-        buf->data[buf->len++] = ' ';
+        if (buf->len + (isnewline ? 1 : 0) > buf->_cap) return true;
+        if (!isnewline) buf->data[buf->len++] = ' ';
         return false;
     }
     while ((line = string_split_iter(&working, pct)).next) {
@@ -852,9 +855,12 @@ bool format_string_arg_into_buffer_iter(string *buf, size_t *argc, TypeInfo **ar
             case T_ULLONG: 
                 format_u64(buf, next.u, opts);
                 break;
+            case T_FLOAT:
+                panic("float formatting not implemented!");
+                break;
             case T_DOUBLE:
             case T_LDOUBLE:
-                panic("Not implemented!");
+                panic("[long] double formatting not implemented!");
                 break;
             case T_BOOL:  
                 // printf("DEBUG: handling formatted T_BOOL\n");
@@ -942,9 +948,13 @@ bool format_args_into_iter(string *buf, size_t *argc, TypeInfo **args, bool isf)
                 format_u64(buf, current.u, 0);
                 buf->data[buf->len++] = ' ';
                 break;
+            case T_FLOAT:
+                panic("float formatting not implemented!");
+                buf->data[buf->len++] = ' ';
+                break;
             case T_DOUBLE:
             case T_LDOUBLE:
-                panic("Not implemented!");
+                panic("[long] double formatting not implemented!");
                 buf->data[buf->len++] = ' ';
                 break;
             case T_BOOL:  

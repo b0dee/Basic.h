@@ -9,7 +9,6 @@ int main()
     printf("hello\n");
     bool test = true;
     my_println("foo", "bar", "baz", test);
-    return 0;
 
     string result = {0};
     // strings
@@ -59,8 +58,8 @@ int main()
 
 
     // not implemented!
-    /* printf("expected:\n420.69 80\n"); */
-    /* my_printfln(420.69f, 80l); */
+    printf("expected:\n420.69 80\n");
+    my_printfln(420.69f, 80l);
     return 0;
 }
 
