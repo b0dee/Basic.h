@@ -758,6 +758,7 @@ void format_u64(string *buf, unsigned long long value, u8 opts)
     char reversed[20];   // max for 64-bit decimal
     int n = 0;
 
+    // @Speed can we improve this?
     do {
         reversed[n++] = '0' + value % 10;
         value /= 10;
@@ -774,6 +775,58 @@ void format_s64(string *buf, long long value, u8 opts)
         value = -value;
     } 
     format_u64(buf, (unsigned long long)value, opts);
+}
+
+#define MAX_DBL_DP 17
+// @Incomplete this is only the case on x64 on 128 bit we need to do 36 for long double
+#define MAX_LDBL_DP 21
+
+void format_f64(string *buf, double value, int precision)
+{
+    if (value <  0) {
+        buf->data[buf->len++] = '-';
+        value = -value;
+    } 
+
+    int digit;
+    long long intpart = (long long)value;
+    double frac       = value - (double)intpart;
+    format_u64(buf, intpart, 0);
+    if (precision < 0) precision = MAX_DBL_DP;
+    buf->data[buf->len++] = '.'; // decimal
+    // @Incomplete figure out the best way to trim trailing 0s
+    // char tmp[MAX_DBL_DP];
+    printf("Value of frac: %f printing to precision: %d\n", frac, precision);
+    for (size_t i = 0; i < (size_t)precision; i++) { 
+        frac *= 10.0;
+        digit = (int)frac;
+        buf->data[buf->len++] = '0' + digit;
+        frac -= digit;
+    }
+}
+
+void format_ldbl(string *buf, long double value, int precision)
+{
+    if (value <  0) {
+        buf->data[buf->len++] = '-';
+        value = -value;
+    } 
+
+    int digit;
+    long long intpart = (long long)value;
+    long double frac  = value - (long double)intpart;
+    format_u64(buf, intpart, 0);
+    if (precision < 0) precision = MAX_DBL_DP;
+    buf->data[buf->len++] = '.'; // decimal
+    // @Incomplete figure out the best way to trim trailing 0s
+    // char tmp[MAX_DBL_DP];
+    for (size_t i = 0; i < (size_t)precision; i++) { 
+        frac *= 10.0;
+        digit = (int)frac;
+        buf->data[buf->len++] = '0' + digit;
+        frac -= digit;
+    }
+
 }
 
 string boolstr[] = {
@@ -823,7 +876,7 @@ bool format_string_arg_into_buffer_iter(string *buf, size_t *argc, TypeInfo **ar
         // we had enough space to write the string UP TO the % we are formatting...
 
         // check we can fit at least a double...
-        if (buf->len + 40 >= buf->_cap) return true;
+        if (buf->len + 41 >= buf->_cap) return true;
         // saves doing an if on each number branch...
 
         if (working.len > 0) {
@@ -858,11 +911,11 @@ bool format_string_arg_into_buffer_iter(string *buf, size_t *argc, TypeInfo **ar
                 format_u64(buf, next.u, opts);
                 break;
             case T_FLOAT:
-                panic("float formatting not implemented!");
-                break;
             case T_DOUBLE:
+                format_f64(buf, next.d, opts);
+                break;
             case T_LDOUBLE:
-                panic("[long] double formatting not implemented!");
+                format_ldbl(buf, next.ld, opts);
                 break;
             case T_BOOL:  
                 // printf("DEBUG: handling formatted T_BOOL\n");
@@ -924,7 +977,7 @@ bool format_args_into_iter(string *buf, size_t *argc, TypeInfo **args, bool isf)
     while (*argc > 0) {
         current = *args[0];
         // Check we can fit the largest possible numerical type when represented as string
-        if (buf->len + 40 >= buf->_cap) return true;
+        if (buf->len + 41 >= buf->_cap) return true;
         // anything else (bool) will fit in this, strings are handled separately...
 
         switch(current.tag) {
@@ -954,13 +1007,11 @@ bool format_args_into_iter(string *buf, size_t *argc, TypeInfo **args, bool isf)
                 buf->data[buf->len++] = ' ';
                 break;
             case T_FLOAT:
-                panic("float formatting not implemented!");
-                buf->data[buf->len++] = ' ';
-                break;
             case T_DOUBLE:
+                format_f64(buf, current.d, -1);
+                break;
             case T_LDOUBLE:
-                panic("[long] double formatting not implemented!");
-                buf->data[buf->len++] = ' ';
+                format_ldbl(buf, current.ld, -1);
                 break;
             case T_BOOL:  
                 result = boolstr[current.b ? 1 : 0];

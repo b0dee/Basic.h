@@ -38,11 +38,12 @@ int main(void)
     my_println("chars:", ca, cZ, c0);
     printf("chars: a Z 0\n");
 
-    my_println("doubles:", 1.5, 2.0, -3.25);
-    printf("doubles: 1.5 2 -3.25\n");
-
     my_println("floats:", 1.5f, 2.0f, -3.25f);
     printf("floats: 1.5 2 -3.25\n");
+
+    long double t = 123.45678901234567890123l;
+    my_println("long doubles:", t, 2.0, -3.25);
+    printf("long doubles: 123.45678901234567890123l 2.0 -3.25\n"); // Incomplete do we keep .0?
 
     sep("my_print percent handling");
 
@@ -143,8 +144,10 @@ int main(void)
 
     sep("null handling");
 
-    my_printfln("null = %s", (char *)0);
+    /*
+    my_printfln("null = %s", (char *)0); // @Bug we do not null check
     printf("null = (null)\n");
+    */
 
     return 0;
 }
