@@ -146,52 +146,35 @@ typedef enum {
 typedef struct {
     tag_t tag;
     union {
-        char                c;
-        signed char         sc;
-        unsigned char       uc;
-
-        short               sh;
-        unsigned short      ush;
-
-        int                 i;
-        unsigned int        ui;
-
-        long                l;
-        unsigned long       ul;
-
-        long long           ll;
-        unsigned long long  ull;
-
-        bool                b;
-
-        float               f;
-        double              d;
-        long double         ld;
-
-        char               *s;
-        void               *p;
+    long long          i;   // signed integers
+    unsigned long long u;   // unsigned integers
+    double             d;   // floats/doubles
+    long double        ld;  // long floats/doubles
+    void              *p;   // pointers
+    char              *s;   // strings
+    bool               b;   // boolean
     };
 } TypeInfo;
 
-TypeInfo arg_char(char x)                     { return (TypeInfo){ T_CHAR,    .c   = x }; }
-TypeInfo arg_schar(signed char x)             { return (TypeInfo){ T_SCHAR,   .sc  = x }; }
-TypeInfo arg_uchar(unsigned char x)           { return (TypeInfo){ T_UCHAR,   .uc  = x }; }
+TypeInfo arg_char(char x)                     { return (TypeInfo){ T_CHAR,    .i   = x }; }
+TypeInfo arg_schar(signed char x)             { return (TypeInfo){ T_SCHAR,   .i  = x }; }
+TypeInfo arg_uchar(unsigned char x)           { return (TypeInfo){ T_UCHAR,   .u  = x }; }
 
-TypeInfo arg_short(short x)                   { return (TypeInfo){ T_SHORT,   .sh  = x }; }
-TypeInfo arg_ushort(unsigned short x)         { return (TypeInfo){ T_USHORT,  .ush = x }; }
+TypeInfo arg_short(short x)                   { return (TypeInfo){ T_SHORT,   .i  = x }; }
+TypeInfo arg_ushort(unsigned short x)         { return (TypeInfo){ T_USHORT,  .u = x }; }
 
 TypeInfo arg_int(int x)                       { return (TypeInfo){ T_INT,     .i   = x }; }
-TypeInfo arg_uint(unsigned int x)             { return (TypeInfo){ T_UINT,    .ui  = x }; }
+TypeInfo arg_uint(unsigned int x)             { return (TypeInfo){ T_UINT,    .u  = x }; }
 
-TypeInfo arg_long(long x)                     { return (TypeInfo){ T_LONG,    .l   = x }; }
-TypeInfo arg_ulong(unsigned long x)           { return (TypeInfo){ T_ULONG,   .ul  = x }; }
+TypeInfo arg_long(long x)                     { return (TypeInfo){ T_LONG,    .i   = x }; }
+TypeInfo arg_ulong(unsigned long x)           { return (TypeInfo){ T_ULONG,   .u  = x }; }
 
-TypeInfo arg_llong(long long x)               { return (TypeInfo){ T_LLONG,   .ll  = x }; }
-TypeInfo arg_ullong(unsigned long long x)     { return (TypeInfo){ T_ULLONG,  .ull = x }; }
+TypeInfo arg_llong(long long x)               { return (TypeInfo){ T_LLONG,   .i  = x }; }
+TypeInfo arg_ullong(unsigned long long x)     { return (TypeInfo){ T_ULLONG,  .u = x }; }
 
 TypeInfo arg_bool(bool x)                     { return (TypeInfo){ T_BOOL,    .b   = x }; }
 
-TypeInfo arg_float(float x)                   { return (TypeInfo){ T_FLOAT,   .f   = x }; }
+TypeInfo arg_float(float x)                   { return (TypeInfo){ T_FLOAT,   .d   = x }; }
 TypeInfo arg_double(double x)                 { return (TypeInfo){ T_DOUBLE,  .d   = x }; }
 TypeInfo arg_ldouble(long double x)            { return (TypeInfo){ T_LDOUBLE, .ld  = x }; }
 
@@ -471,14 +454,14 @@ string string_copy(string *dest, const string source)
     // These should be gaurded and default to this if not avail
     if (!dest) {
         *dest = (string){
-            .len = source.len + 1,
             ._owner = true,
+            .len = source.len + 1,
         };
     }
     assert(dest->_owner);
     if (source.len + dest->len > dest->_cap) {
         printf("DEBUG: allocating memory for string!");
-        dest->data = realloc(dest->data, (dest->len + source.len) * sizeof(char));
+        dest->data = (char *)realloc(dest->data, (dest->len + source.len) * sizeof(char));
         assert(dest->data && "Failed to allocate memory for string");
         dest->_cap = dest->len + source.len;
     }
@@ -594,7 +577,7 @@ string string_write(string *dest, const string source)
     if (dest->len + source.len >= dest->_cap) {
         if (dest->_cap == 0) dest->_cap = source.len;
         dest->_cap *= 2;
-        dest->data = realloc(dest->data, sizeof(char)*dest->_cap);
+        dest->data = (char *)realloc(dest->data, sizeof(char)*dest->_cap);
     }
     for (size_t i = 0; i < source.len; i++) dest->data[dest->len+i] = source.data[i];
     dest->data[dest->len+1] = '\0'; // In case we ever deal with C apis...
@@ -779,7 +762,110 @@ void format_s64(string *buf, long long value, u8 opts)
     format_u64(buf, (unsigned long long)value, opts);
 }
 
-// TODO - this should have a non-itera
+string boolstr[] = {
+    {.data = "false", .len = 5, ._cap = 5},
+    {.data = "true" , .len = 4, ._cap = 4},
+}; 
+
+// @Incomplete I want to replace char * here with string and wrap any char* in cstrlen at time of call
+size_t format_string_arg_into_buffer(string *buf, size_t *argc, TypeInfo **args, char *source)
+{
+    string working, result, line, subline;
+    size_t advanceby;
+    working = cstrlen(source);
+    while ((line = string_split_iter(&working, pct)).next) {
+        // copy into buffer until either we finish the string or we fill up the buffer
+        for (advanceby = 0;buf->len < buf->_cap && line.len > 0; advanceby++) {
+            buf->data[buf->len++] = line.data[advanceby];
+            line.len--;
+        }
+
+        // advance raw source string in case we run out of space and are called again
+        // this gives the caller the same view as 'working' (and thus our next call if any)
+
+        if (line.len > 0) {
+            // We filled up the buffer before we finished writing the string
+            return advanceby;
+        }
+
+        // we had enough space to write the string UP TO the % we are formatting...
+
+        // check we can fit at least a double...
+        if (buf->len + 40 >= buf->_cap) return advanceby;
+        // saves doing an if on each number branch...
+
+        // check if we had an escaped % OR no more args (print the %)
+        if (working.len > 0 && (working.data[0] == '%' || *argc == 1)) {
+            working.data++;
+            working.len--;
+            buf->data[buf->len++] = '%';
+            continue;
+        }
+
+        TypeInfo next = (*args)[1];
+        // We've already checked we know we have at least 1 or more arg so have to format
+        switch(next.tag) {
+            case T_CHAR:
+            case T_SCHAR:
+            case T_SHORT:
+            case T_INT:  
+            case T_LONG:
+            case T_LLONG:
+                format_s64(buf, next.i, 0);
+                break;
+            case T_UCHAR:
+            case T_USHORT:
+            case T_UINT:  
+            case T_ULONG:
+            case T_ULLONG: 
+                format_u64(buf, next.u, 0);
+                break;
+            case T_DOUBLE:
+            case T_LDOUBLE:
+                panic("Not implemented!");
+                break;
+            case T_BOOL:  
+                // printf("DEBUG: handling formatted T_BOOL\n");
+                result = boolstr[next.b ? 1 : 0];
+                for (size_t i = 0; i < result.len; i++) {
+                    buf->data[buf->len++] = result.data[i];
+                }
+                break;
+            case T_STR: // @TODO
+                subline = cstrlen(next.s);
+                // @CopyPasta from a few lines above
+                for (advanceby = 0;buf->len < buf->_cap && working.len > 0; advanceby++) {
+                    buf->data[buf->len++] = working.data[advanceby];
+                    working.len--;
+                }
+                // advance raw source string in case we run out of space and are called again
+                // this gives the caller the same view as 'working' (and thus our next call if any)
+
+                if (subline.len > 0) return advanceby;
+                break;
+
+            default:
+                panic("Unhandled type!");
+        }
+        // Replace the arg we consumed with the string we're formatting
+        (*args)[1] = (*args)[0];
+        // Increment args to remove consumed from total
+        (*args) = &(*args)[1];
+        (*argc)--;
+    }
+    // @CopyPasta from a few lines above
+    for (advanceby = 0;buf->len < buf->_cap && working.len > 0; advanceby++) {
+        buf->data[buf->len++] = working.data[advanceby];
+        working.len--;
+    }
+    // advance raw source string in case we run out of space and are called again
+    // this gives the caller the same view as 'working' (and thus our next call if any)
+    (*args)[0].s = &(*args)[0].s[advanceby]; // no need to preserve the '%' we have handled them all in the loop above
+
+    if (working.len > 0) return advanceby;
+    return 0;
+
+}
 
 // IMPORTANT! Updates *args pointing to next arg on each loop,
 //            if you need to keep access to the start of the list 
@@ -791,20 +877,13 @@ bool format_args_into_iter(string *buf, size_t *argc, TypeInfo **args)
     if (*argc == 0) return false; // nothing to do 
     buf->next = true;
     TypeInfo current;
-    string boolstr[] = {
-        cstrlen("false"),
-        cstrlen("true"),
-    }; 
-
-    string working;
-    string result;
-    string line;
     size_t advanceby;
+    string result;
     while (*argc > 0) {
         current = *args[0];
-        // check we can fit at least a double...
+        // Check we can fit the largest possible numerical type when represented as string
         if (buf->len + 40 >= buf->_cap) return true;
-        // saves doing an if on each number branch...
+        // anything else (bool) will fit in this, strings are handled separately...
 
         switch(current.tag) {
             // Numbers are all handled the same, could probably do this during the tag and just do l and d (long and double all types are representable by)
@@ -813,180 +892,39 @@ bool format_args_into_iter(string *buf, size_t *argc, TypeInfo **args)
             //
             // Numbers not in format string have a space (' ') appended
             case T_CHAR:
-                // printf("DEBUG: handling T_CHAR\n");
-                format_s64(buf, current.c, 0);
-                buf->data[buf->len++] = ' ';
-                break;
             case T_SCHAR:
-                // printf("DEBUG: handling T_SCHAR\n");
-                format_s64(buf, current.sc, 0);
-                buf->data[buf->len++] = ' ';
-                break;
             case T_SHORT:
-                // printf("DEBUG: handling T_SHORT\n");
-                format_s64(buf, current.sh, 0);
-                buf->data[buf->len++] = ' ';
-                break;
             case T_INT:  
-                // printf("DEBUG: handling T_INT\n");
+            case T_LONG:
+            case T_LLONG:
                 format_s64(buf, current.i, 0);
                 buf->data[buf->len++] = ' ';
                 break;
-            case T_LONG:
-                // printf("DEBUG: handling T_LONG\n");
-                format_s64(buf, current.l, 0);
-                buf->data[buf->len++] = ' ';
-                break;
-            case T_LLONG:
-                // printf("DEBUG: handling T_LLONG\n");
-                format_s64(buf, current.ll, 0);
-                buf->data[buf->len++] = ' ';
-                break;
             case T_UCHAR:
-                // printf("DEBUG: handling T_UCHAR\n");
-                format_u64(buf, current.uc, 0);
-                buf->data[buf->len++] = ' ';
-                break;
             case T_USHORT:
-                // printf("DEBUG: handling T_USHORT\n");
-                format_u64(buf, current.ush, 0);
-                buf->data[buf->len++] = ' ';
-                break;
             case T_UINT:  
-                // printf("DEBUG: handling T_UINT\n");
-                format_u64(buf, current.ui, 0);
-                buf->data[buf->len++] = ' ';
-                break;
             case T_ULONG:
-                // printf("DEBUG: handling T_ULONG\n");
-                format_u64(buf, current.ul, 0);
-                buf->data[buf->len++] = ' ';
-                break;
             case T_ULLONG:
-                // printf("DEBUG: handling T_ULLONG\n");
-                format_u64(buf, current.ull, 0);
+                format_u64(buf, current.u, 0);
                 buf->data[buf->len++] = ' ';
                 break;
             case T_DOUBLE:
-                // printf("DEBUG: handling T_DOUBLE\n");
+            case T_LDOUBLE:
                 panic("Not implemented!");
-                // format_number(buf, current.i, 0);
+                buf->data[buf->len++] = ' ';
                 break;
             case T_BOOL:  
                 result = boolstr[current.b ? 1 : 0];
                 for (size_t i = 0; i < result.len; i++) {
                     buf->data[buf->len++] = result.data[i];
                 }
+                buf->data[buf->len++] = ' ';
                 break;
             case T_STR:  
-                // printf("DEBUG: handling T_STR\n");
-                working = cstrlen(current.s);
-                while ((line = string_split_iter(&working, pct)).next) {
-                    // copy into buffer until either we finish the string or we fill up the buffer
-                    for (advanceby = 0;buf->len < buf->_cap && line.len > 0; advanceby++) {
-                        buf->data[buf->len++] = line.data[advanceby];
-                        line.len--;
-                    }
-
-                    // advance raw source string in case we run out of space and are called again
-                    // this gives the caller the same view as 'working' (and thus our next call if any)
-                    current.s = &current.s[advanceby-1]; // -1 to preserve the '%' we cut off!! subsequent calls will pick up where we left off :)
-
-                    if (line.len > 0) {
-                        // We filled up the buffer before we finished writing the string
-                        return true;
-                    }
-
-                    // we had enough space to write the string UP TO the % we are formatting...
-
-                    // check we can fit at least a double...
-                    if (buf->len + 40 >= buf->_cap) return true;
-                    // saves doing an if on each number branch...
-
-                    // check if we had an escaped % OR no more args (print the %)
-                    if (working.len > 0 && (working.data[0] == '%' || *argc == 1)) {
-                        working.data++;
-                        working.len--;
-                        buf->data[buf->len++] = '%';
-                        continue;
-                    }
-
-                    TypeInfo next = (*args)[1];
-                    // We've already checked we know we have at least 1 or more arg so have to format
-                    switch(next.tag) {
-                        case T_CHAR:
-                            // printf("DEBUG: handling formatted T_CHAR\n");
-                            format_s64(buf, next.c, 0);
-                            break;
-                        case T_SCHAR:
-                            // printf("DEBUG: handling formatted T_SCHAR\n");
-                            format_s64(buf, next.sc, 0);
-                            break;
-                        case T_SHORT:
-                            // printf("DEBUG: handling formatted T_SHORT\n");
-                            format_s64(buf, next.sh, 0);
-                            break;
-                        case T_INT:  
-                            // printf("DEBUG: handling formatted T_INT\n");
-                            format_s64(buf, next.i, 0);
-                            break;
-                        case T_LONG:
-                            // printf("DEBUG: handling formatted T_LONG\n");
-                            format_s64(buf, next.l, 0);
-                            break;
-                        case T_LLONG:
-                            // printf("DEBUG: handling formatted T_LLONG\n");
-                            format_s64(buf, next.ll, 0);
-                            break;
-                        case T_UCHAR:
-                            // printf("DEBUG: handling formatted T_UCHAR\n");
-                            format_u64(buf, next.uc, 0);
-                            break;
-                        case T_USHORT:
-                            // printf("DEBUG: handling formatted T_USHORT\n");
-                            format_u64(buf, next.ush, 0);
-                            break;
-                        case T_UINT:  
-                            // printf("DEBUG: handling formatted T_UINT\n");
-                            format_u64(buf, next.ui, 0);
-                            break;
-                        case T_ULONG:
-                            // printf("DEBUG: handling formatted T_ULONG\n");
-                            format_u64(buf, next.ul, 0);
-                            break;
-                        case T_ULLONG: 
-                            // printf("DEBUG: handling formatted T_ULLONG\n");
-                            format_u64(buf, next.ull, 0);
-                            break;
-                        case T_BOOL:  
-                            // printf("DEBUG: handling formatted T_BOOL\n");
-                            result = boolstr[next.b ? 1 : 0];
-                            for (size_t i = 0; i < result.len; i++) {
-                                buf->data[buf->len++] = result.data[i];
-                            }
-                            break;
-                        case T_STR: // @TODO
-                        default:
-                            panic("Unhandled type!");
-                    }
-                    // *buf = string_copy(buf, line);
-                    // Replace the arg we consumed with the string we're formatting
-                    (*args)[1] = (*args)[0];
-                    // Increment args to remove consume from total
-                    (*args) = &(*args)[1];
-                    (*argc)--;
-                }
-                // @CopyPasta from a few lines above
-                for (advanceby = 0;buf->len < buf->_cap && working.len > 0; advanceby++) {
-                    buf->data[buf->len++] = working.data[advanceby];
-                    working.len--;
-                }
-                // advance raw source string in case we run out of space and are called again
-                // this gives the caller the same view as 'working' (and thus our next call if any)
-                (*args)[0].s = &(*args)[0].s[advanceby]; // no need to preserve the '%' we have handled them all in the loop above
-
-                if (working.len > 0) return true;
-                break; // don't  fall through!
+                advanceby = format_string_arg_into_buffer(buf, argc, args, current.s);
+                // (*args)[0].s = &(*args)[0].s[advanceby]; 
+                if (advanceby > 0) return true;
+                break;
             default:
                 panic("Unhandled type!");
         }
