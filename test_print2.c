@@ -5,7 +5,7 @@
 
 static void sep(const char *name)
 {
-    my_printfln("--- % ---", name);
+    my_printfln("--- %s ---", name);
     printf("--- %s ---\n", name);
 }
 
@@ -32,7 +32,10 @@ int main(void)
     my_println("ints:", 1, -2, 3);
     printf("ints: 1 -2 3\n");
 
-    my_println("floats:", 1.5, 2.0, -3.25);
+    my_println("doubles:", 1.5, 2.0, -3.25);
+    printf("doubles: 1.5 2 -3.25\n");
+
+    my_println("floats:", 1.5f, 2.0f, -3.25f);
     printf("floats: 1.5 2 -3.25\n");
 
     my_println("bools:", testtrue, testfalse, testtrue);
@@ -72,7 +75,10 @@ int main(void)
     my_printfln("HEX %X", 255);
     printf("HEX FF\n");
 
-    my_printfln("float %.2f", 3.14159);
+    my_printfln("double %.2", 3.14159);
+    printf("double 3.14\n");
+
+    my_printfln("float %.2f", 3.14159f);
     printf("float 3.14\n");
 
     my_printfln("string %s", "hello");
@@ -88,6 +94,9 @@ int main(void)
 
     my_printfln("%%");
     printf("%%\n");
+
+    my_printfln("%%%d%%", 5);
+    printf("%%5%%\n");
 
     my_printfln("percent %%%% percent");
     printf("percent %% percent\n");
