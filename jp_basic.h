@@ -841,6 +841,8 @@ bool format_string_arg_into_buffer_iter(string *buf, size_t *argc, TypeInfo **ar
         // We've already checked we know we have at least 1 or more arg so have to format
         switch(next.tag) {
             case T_CHAR:
+                buf->data[buf->len++] = (char)next.i;
+                break;
             case T_SCHAR:
             case T_SHORT:
             case T_INT:  
@@ -932,6 +934,9 @@ bool format_args_into_iter(string *buf, size_t *argc, TypeInfo **args, bool isf)
             //
             // Numbers not in format string have a space (' ') appended
             case T_CHAR:
+                buf->data[buf->len++] = (char)current.i;
+                buf->data[buf->len++] = ' ';
+                break;
             case T_SCHAR:
             case T_SHORT:
             case T_INT:  

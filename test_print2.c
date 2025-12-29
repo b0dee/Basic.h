@@ -32,17 +32,17 @@ int main(void)
     my_println("ints:", 1, -2, 3);
     printf("ints: 1 -2 3\n");
 
-    my_println("doubles:", 1.5, 2.0, -3.25);
-    printf("doubles: 1.5 2 -3.25\n");
-
-    my_println("floats:", 1.5f, 2.0f, -3.25f);
-    printf("floats: 1.5 2 -3.25\n");
-
     my_println("bools:", testtrue, testfalse, testtrue);
     printf("bools: true false true\n");
 
     my_println("chars:", ca, cZ, c0);
     printf("chars: a Z 0\n");
+
+    my_println("doubles:", 1.5, 2.0, -3.25);
+    printf("doubles: 1.5 2 -3.25\n");
+
+    my_println("floats:", 1.5f, 2.0f, -3.25f);
+    printf("floats: 1.5 2 -3.25\n");
 
     sep("my_print percent handling");
 
