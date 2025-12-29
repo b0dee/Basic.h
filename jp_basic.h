@@ -793,16 +793,16 @@ void format_f64(string *buf, double value, int precision)
     double frac       = value - (double)intpart;
     format_u64(buf, intpart, 0);
     if (precision < 0) precision = MAX_DBL_DP;
-    buf->data[buf->len++] = '.'; // decimal
-    // @Incomplete figure out the best way to trim trailing 0s
-    // char tmp[MAX_DBL_DP];
-    printf("Value of frac: %f printing to precision: %d\n", frac, precision);
+    buf->data[buf->len] = '.'; 
+    size_t lastnon0 = 1;
     for (size_t i = 0; i < (size_t)precision; i++) { 
         frac *= 10.0;
+        if (frac >= 1) lastnon0 = i + 3; // +3 so we can -= 1 after and it will remove the '.' if no decimal result
         digit = (int)frac;
-        buf->data[buf->len++] = '0' + digit;
+        buf->data[buf->len+1+i] = '0' + digit;
         frac -= digit;
     }
+    buf->len += lastnon0 - 1;
 }
 
 void format_ldbl(string *buf, long double value, int precision)
@@ -817,16 +817,16 @@ void format_ldbl(string *buf, long double value, int precision)
     long double frac  = value - (long double)intpart;
     format_u64(buf, intpart, 0);
     if (precision < 0) precision = MAX_DBL_DP;
-    buf->data[buf->len++] = '.'; // decimal
-    // @Incomplete figure out the best way to trim trailing 0s
-    // char tmp[MAX_DBL_DP];
+    buf->data[buf->len] = '.'; 
+    size_t lastnon0 = 1;
     for (size_t i = 0; i < (size_t)precision; i++) { 
         frac *= 10.0;
+        if (frac >= 1) lastnon0 = i + 3; // +3 so we can -= 1 after and it will remove the '.' if no decimal result
         digit = (int)frac;
-        buf->data[buf->len++] = '0' + digit;
+        buf->data[buf->len+1+i] = '0' + digit;
         frac -= digit;
     }
-
+    buf->len += lastnon0 - 1;
 }
 
 string boolstr[] = {

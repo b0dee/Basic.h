@@ -144,10 +144,8 @@ int main(void)
 
     sep("null handling");
 
-    /*
     my_printfln("null = %s", (char *)0); // @Bug we do not null check
-    printf("null = (null)\n");
-    */
+    printf("null = (nil)\n");
 
     return 0;
 }
