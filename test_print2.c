@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+
 static void sep(const char *name)
 {
     my_printfln("--- %s ---", name);
@@ -41,9 +42,9 @@ int main(void)
     my_println("floats:", 1.5f, 2.0f, -3.25f);
     printf("floats: 1.5 2 -3.25\n");
 
-    long double t = 123.45678901234567890123l;
+    long double t = 123.45678901234567890l;
     my_println("long doubles:", t, 2.0, -3.25);
-    printf("long doubles: 123.45678901234567890123l 2.0 -3.25\n"); // Incomplete do we keep .0?
+    printf("long doubles: 123.4567890123456789 2 -3.25\n"); // Incomplete do we keep .0?
 
     sep("my_print percent handling");
 
@@ -64,6 +65,12 @@ int main(void)
     my_println((char*)0);
     printf     ("(null)\n");
 
+    sep("void pointers");
+
+    // @Incomplete this relies on having Hex implemented!!
+    my_println((void *)&testtrue); // @Bug we do not null check
+    printf     ("%p\n", (void*)&testtrue);
+
     sep("my_printf (formatting)");
 
     my_printfln("hello world");
@@ -75,18 +82,21 @@ int main(void)
     my_printfln("signed = %d", -123);
     printf("signed = -123\n");
 
+    // @TODO Hex not implemented
     my_printfln("hex %x", 255);
     printf("hex ff\n");
 
     my_printfln("HEX %X", 255);
     printf("HEX FF\n");
 
+    // @TODO precision not implemented
     my_printfln("double %.2", 3.14159);
     printf("double 3.14\n");
 
     my_printfln("float %.2f", 3.14159f);
     printf("float 3.14\n");
 
+    // @TODO parsing printf semantics generally ....
     my_printfln("string %s", "hello");
     printf("string hello\n");
 
@@ -115,11 +125,11 @@ int main(void)
 
     sep("inline char literals (explicitly supported)");
 
-    my_println("inline chars:", 'a', 'Z', '0');
+    my_println("inline chars:", "a", "Z", "0");
     printf("inline chars: a Z 0\n");
 
-    my_printfln("inline %c %c %c", 'a', 'Z', '0');
-    printf("inline a Z 0\n");
+    my_printfln("inline %c%c%c", (char)'a', (char)'Z', (char)'0');
+    printf("inline aZ0\n");
 
     sep("fixed-width integers");
 
@@ -149,9 +159,14 @@ int main(void)
 
     sep("null handling");
 
-    printf     ("null = %s\n", (char *)0);
     my_printfln("null = %", (char *)0); // @Bug we do not null check
-    /* printf("null = (nil)\n"); */
+    printf     ("null = (null)\n");
+
+    sep("void *");
+
+    // @TODO Pointers not implemented
+    my_printfln("pointer = %", (void *)&testtrue); // @Bug we do not null check
+    printf     ("pointer = %p\n", (void*)&testtrue);
 
     return 0;
 }

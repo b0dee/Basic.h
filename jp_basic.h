@@ -751,6 +751,12 @@ size_t __print(char *data, size_t len) {
     return __write(stdio_handles[STDOUT], data, len);
 }
 
+const char _basesystem[] = "0123456789abcdefghijklmnopqrstuvwxyz_#";
+
+#define FMTOPT_UPPER
+#define FMTOPT_LOWER
+#define FMTOPT_LOWER
+
 //#define ALWAYS_SHOW_SIGN 1 << 0
 void format_u64(string *buf, unsigned long long value, u8 opts) 
 {
@@ -780,6 +786,7 @@ void format_s64(string *buf, long long value, u8 opts)
 #define MAX_DBL_DP 17
 // @Incomplete this is only the case on x64 on 128 bit we need to do 36 for long double
 #define MAX_LDBL_DP 21
+
 
 void format_f64(string *buf, double value, int precision)
 {
@@ -850,7 +857,8 @@ size_t write_string_upto_cap(string *buf, string source)
 bool format_string_arg_into_buffer_iter(string *buf, size_t *argc, TypeInfo **args, char *source, bool isf)
 {
     if (!source) {
-        write_string_upto_cap(buf, (string){.data="(null)", .len=6});
+        if (isf) write_string_upto_cap(buf, (string){.data="(null)", .len=6});
+        else write_string_upto_cap(buf, (string){.data="(null) ", .len=7});
         return false;
     }
     string working, result, line, subline;
@@ -858,12 +866,24 @@ bool format_string_arg_into_buffer_iter(string *buf, size_t *argc, TypeInfo **ar
     u8 opts = 0;
     size_t advanceby;
     if (!isf) {
-        string newline = {.data = "\n", .len = 1, ._cap = 1 };
-        bool isnewline = string_cmp(working, newline);
+        // [\n]
         advanceby = write_string_upto_cap(buf, working);
-        (*args)[0].s = &(*args)[0].s[advanceby]; // no need to preserve the '%' we are not formatting
-        if (buf->len + (isnewline ? 1 : 0) > buf->_cap) return true;
-        if (!isnewline) buf->data[buf->len++] = ' ';
+        if (*argc == 1) {
+            (*args)[0].s = &(*args)[0].s[advanceby-1]; // we don't know if we hit the cap when writing
+                                                       // if we did and we trim the trailing \n from print[f]ln
+                                                       // we won't know to come back into this block
+            // We only care about trailing newlines as inserted by print[f]ln
+            bool isnewline = *working.data == '\n';
+            if (buf->len + (isnewline ? 1 : 0) > buf->_cap) return true;
+            
+            // We don't need to advance the string any more as we return saying we've finished it
+            // save the wasteful op
+            if (!isnewline) buf->data[buf->len++] = ' ';
+            return false;
+        }
+        (*args)[0].s = &(*args)[0].s[advanceby]; // we don't need to reserve any space cut what we read
+        if (advanceby > working.len) return true;
+
         return false;
     }
     while ((line = string_split_iter(&working, pct)).next) {
@@ -928,9 +948,18 @@ bool format_string_arg_into_buffer_iter(string *buf, size_t *argc, TypeInfo **ar
                     buf->data[buf->len++] = result.data[i];
                 }
                 break;
+            case T_PTR:
+                panic("T_PTR not implemented!!");
+                break;
             case T_STR:
                 if (!next.s) {
-                    write_string_upto_cap(buf, (string){.data="(null)", .len=6});
+                    advanceby = write_string_upto_cap(buf, (string){.data="(null)", .len=6});
+                    if (6 > advanceby) {
+                        // we didn't write the full '(null)' to the string
+                        // undo what we wrote as it's cleanest way to ensure we don't write wonky crap
+                        buf->len -= advanceby; // @Incomplete check this is not off by 1!!!
+                        return true;
+                    }
                     break;
                 }
                 subline = cstrlen(next.s);
@@ -996,7 +1025,6 @@ bool format_args_into_iter(string *buf, size_t *argc, TypeInfo **args, bool isf)
             // Numbers not in format string have a space (' ') appended
             case T_CHAR:
                 buf->data[buf->len++] = (char)current.i;
-                buf->data[buf->len++] = ' ';
                 break;
             case T_SCHAR:
             case T_SHORT:
@@ -1004,7 +1032,6 @@ bool format_args_into_iter(string *buf, size_t *argc, TypeInfo **args, bool isf)
             case T_LONG:
             case T_LLONG:
                 format_s64(buf, current.i, 0);
-                buf->data[buf->len++] = ' ';
                 break;
             case T_UCHAR:
             case T_USHORT:
@@ -1012,12 +1039,10 @@ bool format_args_into_iter(string *buf, size_t *argc, TypeInfo **args, bool isf)
             case T_ULONG:
             case T_ULLONG:
                 format_u64(buf, current.u, 0);
-                buf->data[buf->len++] = ' ';
                 break;
             case T_FLOAT:
             case T_DOUBLE:
                 format_f64(buf, current.d, -1);
-                buf->data[buf->len++] = ' ';
                 break;
             case T_LDOUBLE:
                 format_ldbl(buf, current.ld, -1);
@@ -1027,7 +1052,9 @@ bool format_args_into_iter(string *buf, size_t *argc, TypeInfo **args, bool isf)
                 for (size_t i = 0; i < result.len; i++) {
                     buf->data[buf->len++] = result.data[i];
                 }
-                buf->data[buf->len++] = ' ';
+                break;
+            case T_PTR:
+                format_u64(buf, (unsigned long long)current.p, 0);
                 break;
             case T_STR:  
                 if (format_string_arg_into_buffer_iter(buf, argc, args, current.s, isf)) return true;
@@ -1037,6 +1064,15 @@ bool format_args_into_iter(string *buf, size_t *argc, TypeInfo **args, bool isf)
                 // custom types... So we can handle custom types here?
                 panic("Unhandled type!");
         }
+
+        // maybe this nested if is horrible
+        // I'm hoping it helps it run faster as branches refined by scope
+        if (!isf){
+            if (*argc > 1) {
+                buf->data[buf->len++] = ' ';
+            }
+        }
+
         (*args) = &(*args)[1]; // Update args base address
         (*argc)--;
     }
